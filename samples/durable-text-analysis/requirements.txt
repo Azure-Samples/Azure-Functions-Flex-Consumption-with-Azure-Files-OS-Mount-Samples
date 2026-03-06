@@ -1,0 +1,5 @@
+# Azure Functions v2 programming model
+azure-functions>=1.21.0,<2.0.0
+
+# Durable Functions extension for Python
+azure-functions-durable>=1.2.9,<2.0.0

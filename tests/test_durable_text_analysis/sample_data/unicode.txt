@@ -1,0 +1,3 @@
+Héllo wörld — this file uses UTF-8 characters: é, ñ, ü, ß, 日本語, 中文.
+Testing that text analysis handles Unicode correctly.
+Ñoño café résumé naïve über straße.

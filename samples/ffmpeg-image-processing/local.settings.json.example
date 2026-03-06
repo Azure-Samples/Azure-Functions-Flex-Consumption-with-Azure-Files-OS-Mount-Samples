@@ -1,0 +1,10 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "FFMPEG_PATH": "/mounts/tools/ffmpeg",
+    "OUTPUT_WIDTH": "800",
+    "OUTPUT_FORMAT": "png"
+  }
+}
