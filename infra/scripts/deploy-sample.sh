@@ -77,26 +77,41 @@ az group create \
 # ---- Step 2: Deploy infrastructure via Bicep --------------------------------
 echo "==> Deploying infrastructure (storage, monitoring, function app)..."
 
-# Deploy storage account with file shares.
+# Deployment container name for Flex Consumption app packages.
+DEPLOY_CONTAINER="app-package-$(echo "$FUNCTION_APP" | head -c 32)-$(openssl rand -hex 4)"
+
+# Deploy storage account with file shares and deployment container.
 az deployment group create \
     --resource-group "$RESOURCE_GROUP" \
     --template-file "$INFRA_DIR/modules/storage-account.bicep" \
     --parameters \
         storageAccountName="$STORAGE_ACCOUNT" \
         location="$LOCATION" \
+        deploymentContainerName="$DEPLOY_CONTAINER" \
         fileShareNames='["data","tools"]' \
     --output none
 
-# Retrieve the connection string.
-CONN_STRING=$(az storage account show-connection-string \
+# Retrieve outputs from storage deployment.
+STORAGE_BLOB_ENDPOINT=$(az deployment group show \
     --resource-group "$RESOURCE_GROUP" \
-    --name "$STORAGE_ACCOUNT" \
-    --query connectionString -o tsv)
-
-ACCOUNT_KEY=$(az storage account keys list \
+    --name storage-account \
+    --query 'properties.outputs.primaryBlobEndpoint.value' -o tsv 2>/dev/null || echo "")
+STORAGE_BLOB_URI=$(az deployment group show \
     --resource-group "$RESOURCE_GROUP" \
-    --account-name "$STORAGE_ACCOUNT" \
-    --query '[0].value' -o tsv)
+    --name storage-account \
+    --query 'properties.outputs.blobServiceUri.value' -o tsv 2>/dev/null || echo "")
+STORAGE_QUEUE_URI=$(az deployment group show \
+    --resource-group "$RESOURCE_GROUP" \
+    --name storage-account \
+    --query 'properties.outputs.queueServiceUri.value' -o tsv 2>/dev/null || echo "")
+STORAGE_TABLE_URI=$(az deployment group show \
+    --resource-group "$RESOURCE_GROUP" \
+    --name storage-account \
+    --query 'properties.outputs.tableServiceUri.value' -o tsv 2>/dev/null || echo "")
+ACCOUNT_KEY=$(az deployment group show \
+    --resource-group "$RESOURCE_GROUP" \
+    --name storage-account \
+    --query 'properties.outputs.accountKey.value' -o tsv 2>/dev/null || echo "")
 
 # Deploy monitoring.
 az deployment group create \
@@ -105,10 +120,6 @@ az deployment group create \
     --parameters baseName="$BASE_NAME" location="$LOCATION" \
     --output none
 
-INSIGHTS_KEY=$(az deployment group show \
-    --resource-group "$RESOURCE_GROUP" \
-    --name monitoring \
-    --query 'properties.outputs.instrumentationKey.value' -o tsv 2>/dev/null || echo "")
 INSIGHTS_CONN=$(az deployment group show \
     --resource-group "$RESOURCE_GROUP" \
     --name monitoring \
@@ -122,18 +133,58 @@ elif [[ "$SAMPLE_NAME" == "ffmpeg-image-processing" ]]; then
     EXTRA_SETTINGS='{"FFMPEG_PATH":"/mounts/tools/ffmpeg","OUTPUT_WIDTH":"800","OUTPUT_FORMAT":"png"}'
 fi
 
-# Deploy function app.
+# Deploy function app (Flex Consumption with managed identity).
 az deployment group create \
     --resource-group "$RESOURCE_GROUP" \
     --template-file "$INFRA_DIR/modules/function-app.bicep" \
     --parameters \
         functionAppName="$FUNCTION_APP" \
         location="$LOCATION" \
-        storageConnectionString="$CONN_STRING" \
-        appInsightsInstrumentationKey="$INSIGHTS_KEY" \
+        storageBlobEndpoint="$STORAGE_BLOB_ENDPOINT" \
+        deploymentContainerName="$DEPLOY_CONTAINER" \
+        storageBlobServiceUri="$STORAGE_BLOB_URI" \
+        storageQueueServiceUri="$STORAGE_QUEUE_URI" \
+        storageTableServiceUri="$STORAGE_TABLE_URI" \
         appInsightsConnectionString="$INSIGHTS_CONN" \
         additionalAppSettings="$EXTRA_SETTINGS" \
     --output none
+
+# Assign Storage Blob Data Owner role to function app's managed identity
+# so it can read deployment packages and access AzureWebJobsStorage.
+FUNC_PRINCIPAL_ID=$(az deployment group show \
+    --resource-group "$RESOURCE_GROUP" \
+    --name function-app \
+    --query 'properties.outputs.principalId.value' -o tsv 2>/dev/null || echo "")
+STORAGE_ACCOUNT_ID=$(az deployment group show \
+    --resource-group "$RESOURCE_GROUP" \
+    --name storage-account \
+    --query 'properties.outputs.storageAccountId.value' -o tsv 2>/dev/null || echo "")
+
+if [[ -n "$FUNC_PRINCIPAL_ID" && -n "$STORAGE_ACCOUNT_ID" ]]; then
+    echo "==> Assigning Storage Blob Data Owner role to function app identity..."
+    az role assignment create \
+        --assignee-object-id "$FUNC_PRINCIPAL_ID" \
+        --assignee-principal-type ServicePrincipal \
+        --role "Storage Blob Data Owner" \
+        --scope "$STORAGE_ACCOUNT_ID" \
+        --output none 2>/dev/null || true
+
+    echo "==> Assigning Storage Queue Data Contributor role..."
+    az role assignment create \
+        --assignee-object-id "$FUNC_PRINCIPAL_ID" \
+        --assignee-principal-type ServicePrincipal \
+        --role "Storage Queue Data Contributor" \
+        --scope "$STORAGE_ACCOUNT_ID" \
+        --output none 2>/dev/null || true
+
+    echo "==> Assigning Storage Table Data Contributor role..."
+    az role assignment create \
+        --assignee-object-id "$FUNC_PRINCIPAL_ID" \
+        --assignee-principal-type ServicePrincipal \
+        --role "Storage Table Data Contributor" \
+        --scope "$STORAGE_ACCOUNT_ID" \
+        --output none 2>/dev/null || true
+fi
 
 # ---- Step 3: Configure OS mounts -------------------------------------------
 # IMPORTANT: All mounts are deployed in a single Bicep call using the plural

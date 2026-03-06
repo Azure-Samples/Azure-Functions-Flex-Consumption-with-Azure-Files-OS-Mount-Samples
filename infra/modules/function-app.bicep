@@ -3,9 +3,17 @@
 // Deploys an Azure Functions Flex Consumption plan and function app.
 //
 // Flex Consumption is the serverless plan that supports OS-level mounts.
-// The function app is configured for Python and uses the v2 programming
-// model.  The OS mount configuration is handled by the companion
-// azure-files-mount.bicep module after deployment.
+// This module configures the app using the ``functionAppConfig`` property
+// which is REQUIRED for Flex Consumption:
+//   - deployment.storage: blob container with managed identity auth
+//   - scaleAndConcurrency: instance count and memory
+//   - runtime: language name and version (replaces linuxFxVersion)
+//
+// Authentication uses system-assigned managed identity for both the
+// deployment storage and AzureWebJobsStorage (blob/queue/table URIs).
+//
+// The OS mount configuration is handled by the companion
+// azure-files-mount(s).bicep module after deployment.
 // ---------------------------------------------------------------------------
 
 @description('Name of the function app resource.')
@@ -14,14 +22,39 @@ param functionAppName string
 @description('Azure region for all resources.')
 param location string = resourceGroup().location
 
-@description('Resource ID of the Application Insights instance.')
-param appInsightsInstrumentationKey string = ''
-
-@description('Resource ID of the Application Insights connection string.')
+@description('Application Insights connection string.')
 param appInsightsConnectionString string = ''
 
-@description('Connection string of the storage account used by the Functions runtime (AzureWebJobsStorage).')
-param storageConnectionString string
+@description('Primary blob endpoint of the storage account (e.g. https://<name>.blob.core.windows.net/).')
+param storageBlobEndpoint string
+
+@description('Name of the blob container for Flex Consumption deployment packages.')
+param deploymentContainerName string
+
+@description('Blob service URI for AzureWebJobsStorage managed identity auth.')
+param storageBlobServiceUri string
+
+@description('Queue service URI for AzureWebJobsStorage managed identity auth.')
+param storageQueueServiceUri string
+
+@description('Table service URI for AzureWebJobsStorage managed identity auth.')
+param storageTableServiceUri string
+
+@description('Functions runtime name.')
+@allowed(['dotnet-isolated', 'python', 'java', 'node', 'powerShell'])
+param functionAppRuntime string = 'python'
+
+@description('Functions runtime version.')
+param functionAppRuntimeVersion string = '3.11'
+
+@description('Maximum instance count for scale out.')
+@minValue(40)
+@maxValue(1000)
+param maximumInstanceCount int = 100
+
+@description('Memory allocated per instance in MB.')
+@allowed([512, 2048, 4096])
+param instanceMemoryMB int = 2048
 
 @description('Additional app settings to merge into the function app configuration.')
 param additionalAppSettings object = {}
@@ -32,50 +65,65 @@ param tags object = {}
 // ---------------------------------------------------------------------------
 // Flex Consumption hosting plan (SKU: FC1)
 // ---------------------------------------------------------------------------
-resource hostingPlan 'Microsoft.Web/serverfarms@2023-12-01' = {
+resource hostingPlan 'Microsoft.Web/serverfarms@2024-04-01' = {
   name: '${functionAppName}-plan'
   location: location
   tags: tags
   sku: {
-    // FC1 is the Flex Consumption SKU.
     name: 'FC1'
     tier: 'FlexConsumption'
   }
   kind: 'functionapp'
   properties: {
-    reserved: true // Required for Linux
+    reserved: true
   }
 }
 
 // ---------------------------------------------------------------------------
-// Function app
+// Function app — Flex Consumption with managed identity
 // ---------------------------------------------------------------------------
 
-// Build the base app settings, then merge any extras the caller provides.
-var baseAppSettings = {
-  AzureWebJobsStorage: storageConnectionString
-  FUNCTIONS_WORKER_RUNTIME: 'python'
-  FUNCTIONS_EXTENSION_VERSION: '~4'
-  APPINSIGHTS_INSTRUMENTATIONKEY: appInsightsInstrumentationKey
+// Base app settings using managed identity (no connection strings / keys).
+var baseAppSettings = union({
+  AzureWebJobsStorage__credential: 'managedidentity'
+  AzureWebJobsStorage__blobServiceUri: storageBlobServiceUri
+  AzureWebJobsStorage__queueServiceUri: storageQueueServiceUri
+  AzureWebJobsStorage__tableServiceUri: storageTableServiceUri
   APPLICATIONINSIGHTS_CONNECTION_STRING: appInsightsConnectionString
-  // Python v2 programming model — single function_app.py entry point.
-  AzureWebJobsFeatureFlags: 'EnableWorkerIndexing'
-}
+  APPLICATIONINSIGHTS_AUTHENTICATION_STRING: 'Authorization=AAD'
+}, additionalAppSettings)
 
-// Union of base + caller-supplied settings.
-var mergedAppSettings = union(baseAppSettings, additionalAppSettings)
-
-resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
+resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
   name: functionAppName
   location: location
   tags: tags
   kind: 'functionapp,linux'
+  identity: {
+    type: 'SystemAssigned'
+  }
   properties: {
     serverFarmId: hostingPlan.id
-    reserved: true
+    functionAppConfig: {
+      deployment: {
+        storage: {
+          type: 'blobContainer'
+          value: '${storageBlobEndpoint}${deploymentContainerName}'
+          authentication: {
+            type: 'SystemAssignedIdentity'
+          }
+        }
+      }
+      scaleAndConcurrency: {
+        maximumInstanceCount: maximumInstanceCount
+        instanceMemoryMB: instanceMemoryMB
+      }
+      runtime: {
+        name: functionAppRuntime
+        version: functionAppRuntimeVersion
+      }
+    }
     siteConfig: {
-      linuxFxVersion: 'PYTHON|3.11'
-      appSettings: [for item in items(mergedAppSettings): {
+      appSettings: [for item in items(baseAppSettings): {
         name: item.key
         value: item.value
       }]
@@ -98,3 +146,6 @@ output defaultHostName string = functionApp.properties.defaultHostName
 
 @description('Resource ID of the hosting plan.')
 output hostingPlanId string = hostingPlan.id
+
+@description('Principal ID of the function app system-assigned managed identity.')
+output principalId string = functionApp.identity.principalId

@@ -1,6 +1,10 @@
 // ---------------------------------------------------------------------------
 // Module: monitoring.bicep
 // Deploys Application Insights backed by a Log Analytics workspace.
+//
+// Aligned with Flex Consumption best practices:
+//   - Local auth disabled on App Insights (AAD-based auth via connection string).
+//   - Function app should set APPLICATIONINSIGHTS_AUTHENTICATION_STRING='Authorization=AAD'.
 // ---------------------------------------------------------------------------
 
 @description('Base name used to derive resource names.')
@@ -8,6 +12,9 @@ param baseName string
 
 @description('Azure region.')
 param location string = resourceGroup().location
+
+@description('Disable local (non-AAD) authentication on Application Insights.')
+param disableLocalAuth bool = true
 
 @description('Tags to apply.')
 param tags object = {}
@@ -38,6 +45,7 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
   properties: {
     Application_Type: 'web'
     WorkspaceResourceId: logAnalytics.id
+    DisableLocalAuth: disableLocalAuth
     publicNetworkAccessForIngestion: 'Enabled'
     publicNetworkAccessForQuery: 'Enabled'
   }
@@ -46,9 +54,6 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
 // ---------------------------------------------------------------------------
 // Outputs
 // ---------------------------------------------------------------------------
-@description('Instrumentation key for Application Insights.')
-output instrumentationKey string = appInsights.properties.InstrumentationKey
-
 @description('Connection string for Application Insights.')
 output connectionString string = appInsights.properties.ConnectionString
 
