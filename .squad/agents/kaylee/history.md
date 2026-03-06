@@ -23,3 +23,13 @@
   - Durable Functions host.json uses hub name `TextAnalysisHub` and extension bundle v4.x.
 
 - **2026-03-06 — Test infrastructure complete (Zoe).** 55 tests passing across 3 suites. Zoe flagged activity naming contract: tests assume `list_files`, `analyze_text`, `aggregate_results` and ffmpeg at `/mnt/azure-files/bin/ffmpeg`. Implementation locked in these names — if changes needed, tests require update. See `.squad/orchestration-log/2026-03-06T19-43-zoe.md`.
+
+- **2026-03-06 — Doc-code alignment fixes (7 files).** Mal rejected all docs for systematic misalignment with actual code. Fixed every issue:
+  - All mount paths changed from `/mnt/` to `/mounts/` across all 6 doc files (Flex Consumption requires `/mounts/` prefix).
+  - Durable quickstart: corrected HTTP endpoint (`/api/start-analysis`), status endpoint (`/api/status/{instance_id}`), share name (`data`), response schema (actual `aggregate_results` output with `total_files`, `total_words`, `total_lines`, `total_chars`, `overall_avg_word_length`, `overall_top_characters`, `per_file`), and infra reference (`infra/scripts/deploy-sample.sh`).
+  - FFmpeg quickstart: corrected share name (`tools`), mount path (`/mounts/tools/ffmpeg`), function name in logs (`process_image_blob`), output blob name (same name as input via `{name}` binding), requirements description (just `azure-functions`), and infra reference.
+  - Concept docs: replaced `WEBSITE_MOUNT_ENABLED` app settings pattern with correct `azureStorageAccounts` site config property approach. Removed `WEBSITE_MOUNT_ENABLED` from Bicep examples.
+  - Removed dead Pillow dependency from `samples/ffmpeg-image-processing/requirements.txt`.
+  - All 67 tests still pass after changes.
+
+- **2026-03-06 — Re-assignment: Doc-code alignment fixes (post-Mal review).** Mal's full code review rejected all 7 documentation files for systematic misalignment with actual code. Inara (original DevRel author) was locked out; Kaylee reassigned to fix all docs since she knows the actual implementation. Completed all fixes: mount paths `/mnt/` → `/mounts/`, HTTP endpoints corrected, response schemas updated, share names aligned, infra references fixed to point to actual deploy scripts, mount config mechanism changed from app settings to site config property, and dead Pillow dependency removed. All 67 tests pass. See `.squad/orchestration-log/2026-03-06T20-00-kaylee.md` and `.squad/decisions.md` for full details.

@@ -232,6 +232,128 @@ Tests need to run in CI without Azure resources, ffmpeg binaries, or Azure Funct
 - **Mal:** CI workflow is ready; just merge and enable.
 - **Inara:** Tutorial steps can reference `pytest tests/` as the validation command.
 
+### Decision: Code Review Verdict — Full Build Review
+
+**Reviewer:** Mal (Lead)  
+**Date:** 2026-03-06  
+**Status:** CONDITIONAL APPROVAL — 2 blocking issues must be fixed
+
+#### Verdict Summary
+
+| Area | Result | Blocking? |
+|------|--------|-----------|
+| Sample Code | ⚠️ Approved with notes | No |
+| Azure Best Practices | ⚠️ Approved with notes | No |
+| Doc-Code Alignment | ❌ Rejected | **Yes** |
+| Test Coverage | ⚠️ Approved with notes | No |
+| Infrastructure (Mount Bug) | ❌ Rejected | **Yes** |
+| Scope | ✅ Approved | No |
+
+#### Blocking Issues
+
+1. **Doc-Code Alignment (ALL 7 DOCS)** — Systematic misalignment:
+   - Mount paths: All docs use `/mnt/` (incorrect for Flex Consumption); must use `/mounts/`
+   - HTTP endpoints: Durable quickstart references non-existent orchestrator routes; actual endpoints are `/api/start-analysis` and `/api/status/{instance_id}`
+   - Response schemas: Quickstarts show non-existent sentiment analysis; actual output has `total_files`, `total_words`, `total_lines`, `total_chars`, `overall_avg_word_length`, `overall_top_characters`, `per_file`
+   - Share names: Docs use `"text-data"` and `"ffmpeg-binaries"`; actual deploy script creates `"data"` and `"tools"`
+   - Infra references: Docs reference non-existent per-sample `infra/main.bicep`; actual entry point is `infra/scripts/deploy-sample.sh`
+   - Mount config mechanism: Docs reference `WEBSITE_MOUNT_ENABLED` app settings; actual implementation uses `azureStorageAccounts` site config property
+   - Dependencies: FFmpeg sample docs claim `azure-storage-blob` and `python-dotenv` in requirements; actual file has `azure-functions` only
+
+   **Assigned to:** Kaylee (knows the actual code)
+
+2. **Mount Overwrite Bug in Deploy Script** — Critical infrastructure bug:
+   - Deploy script calls `azure-files-mount.bicep` sequentially twice (once for `data`, once for `tools`)
+   - `Microsoft.Web/sites/config` **replaces** the entire `azureStorageAccounts` dictionary on each deployment
+   - After second deploy, first mount is gone — both mounts never coexist
+   - Fix: Create `azure-files-mounts.bicep` (plural) accepting array of mounts, deploy all in single config resource using `reduce()`/`union()`
+
+   **Assigned to:** Zoe (can add regression tests)
+
+#### Approved Areas (with notes)
+
+- **Sample Code:** Both apps correct. Notes: Remove dead Pillow dependency from ffmpeg sample; unused `get_image_info()` function (scope creep, non-blocking).
+- **Azure Best Practices:** All correct. Notes: Storage key outputs in Bicep are for sample-only use (not production); deploy scripts use keys instead of managed identity (acceptable for quickstart).
+- **Test Coverage:** 55 tests passing. Notes: Activity naming contract locked in; no import-level smoke tests to catch syntax errors.
+- **Scope:** Appropriate for v1.
+
+#### Full Review Details
+
+See original review document: `.squad/orchestration-log/2026-03-06T19-30-mal.md` and `.squad/decisions/inbox/mal-code-review-verdict.md` (before merge).
+
+---
+
+### Decision: Doc-Code Alignment Fixes (Post-Review)
+
+**Author:** Kaylee (Cloud Dev), fixing Mal's rejection  
+**Date:** 2026-03-06  
+**Status:** Implemented
+
+#### Actions Taken
+
+Fixed all 7 documentation files to align with actual code:
+
+1. **Mount paths:** Changed `/mnt/` → `/mounts/` throughout (Flex Consumption requirement)
+2. **HTTP endpoints:** Corrected starter route (`/api/start-analysis`) and status route (`/api/status/{instance_id}`) in Durable quickstart
+3. **Response schemas:** Updated to match actual `aggregate_results` output with correct fields
+4. **Share names:** Fixed to actual values (`"data"` and `"tools"`)
+5. **Infra references:** Updated all docs to point to `infra/scripts/deploy-sample.sh`, removed non-existent per-sample Bicep references
+6. **Mount configuration:** Replaced `WEBSITE_MOUNT_ENABLED` app settings pattern with correct `azureStorageAccounts` site config property
+7. **Dependencies:** Removed dead Pillow dependency from `samples/ffmpeg-image-processing/requirements.txt`
+
+#### Impact
+
+- All 7 docs now align with actual code
+- All 67 tests pass (no test changes needed)
+- Customers can follow quickstarts start-to-finish without confusion
+- Ready for Mal re-review
+
+#### Future Implications
+
+- **Inara:** Future doc edits must cross-reference actual code implementation before publishing
+- **Kaylee:** Sample code must remain stable to keep docs aligned
+- **Zoe:** Test coverage validates doc accuracy indirectly
+
+---
+
+### Decision: Multi-Mount Deployment Using Plural Module
+
+**Author:** Zoe (Tester), fixing Mal's infrastructure rejection  
+**Date:** 2026-03-06  
+**Status:** Implemented
+
+#### Problem
+
+Deploy script deployed Azure Files mounts sequentially, causing each deployment to overwrite prior mounts. Only the last mount survived.
+
+#### Solution
+
+1. Created `infra/modules/azure-files-mounts.bicep` (plural) that:
+   - Accepts array of mount configurations
+   - Uses `reduce()` and `union()` to atomically merge all mounts
+   - Deploys all mounts in single `Microsoft.Web/sites/config` resource
+
+2. Updated `deploy-sample.sh` to use plural module with array of both `data` and `tools` mounts
+
+3. Kept singular `azure-files-mount.bicep` for backward compatibility
+
+4. Added 12 regression tests in `tests/test_infra/test_mount_overwrite_fix.py`
+
+#### Impact
+
+- Both mounts now coexist on function app after deployment
+- Deploy script is idempotent (same result on re-run)
+- All 67 tests pass (including 12 new regression tests)
+- Key lesson documented: Dictionary-based Bicep resources require atomic merge patterns; never deploy piecemeal
+
+#### Future Implications
+
+- **Infrastructure pattern:** Array-based Bicep modules with `reduce()`/`union()` for managing multi-item configurations
+- **Testing:** Regression test coverage guards against similar bugs in other dictionary-based deployments
+- **Kaylee/Inara:** If docs reference mount deployment, note the plural module pattern
+
+---
+
 ## Governance
 
 - All meaningful changes require team consensus
