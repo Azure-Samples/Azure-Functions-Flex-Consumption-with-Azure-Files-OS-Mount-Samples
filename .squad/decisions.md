@@ -423,3 +423,134 @@ Rewrote `function-app.bicep`, `storage-account.bicep`, and `monitoring.bicep` to
 - All meaningful changes require team consensus
 - Document architectural decisions here
 - Keep history focused on work, decisions focused on direction
+# Decision: First E2E Deployment Results
+
+**Author:** Kaylee (Cloud Dev)
+**Date:** 2026-03-06
+**Status:** Informational
+
+## Context
+
+Deployed the Durable Text Analysis sample end-to-end to Azure for the first time. Subscription: `thalme` (Microsoft tenant).
+
+## What Deployed
+
+| Resource | Name | Details |
+|----------|------|---------|
+| Resource Group | `rg-azure-files-samples-dev` | eastus |
+| Storage Account | `stazfilefuncdev` | Standard_LRS, file shares: data, tools |
+| Function App | `azfilefunc-func` | Flex Consumption (FC1), Python 3.11 |
+| App Insights | `azfilefunc-insights` | + Log Analytics workspace |
+| RBAC | 3 role assignments | Blob Data Owner, Queue Data Contributor, Table Data Contributor |
+| OS Mounts | `/mounts/data`, `/mounts/tools` | SMB, state: Ok |
+
+## Created `infra/main.bicep`
+
+Orchestrates all 4 shared modules (monitoring, storage, function-app, azure-files-mounts) plus RBAC role assignments in correct dependency order. Single deployment command replaces the sequential az CLI calls in `deploy-sample.sh`.
+
+## Issues Encountered
+
+1. **Corporate policy blocks `allowSharedKeyAccess: true`**: Microsoft tenant enforces `SafeSec-Strg-OptIn-V1-0` policy. Azure Files mounts require shared key access (no MI option for SMB mounts). **Fix:** Added `Az.Sec.DisableLocalAuth.Storage::Skip` tag to storage account. This tag should be documented for Microsoft-internal deployments.
+
+2. **Bicep `guid()` in role assignment names**: Can't use module outputs in `guid()` for role assignment names (BCP120 — value must be calculable at deployment start). **Fix:** Use parameter values (`storageAccountName`, `functionAppName`) + `resourceGroup().id` instead.
+
+3. **Python version mismatch warning**: Local Python 3.12 vs deployed 3.11. No functional impact — remote build uses correct version.
+
+## Test Results
+
+- POST `/api/start-analysis` → 202 with Durable Functions status URLs ✅
+- GET `/api/status/{instanceId}` → Completed with full analysis output ✅
+- Orchestration found 3 files on `/mounts/data/`, analysed all in parallel, aggregated results
+- Output: 169 words, 17 lines, 1088 chars across 3 files
+
+## Teardown
+
+```bash
+bash infra/scripts/cleanup.sh --resource-group rg-azure-files-samples-dev
+```
+# Decision: Document All Deployment Gotchas from Live Testing
+
+**Author:** Kaylee (Cloud Dev)
+**Date:** 2026-03-06
+**Status:** Implemented
+
+## Context
+
+After completing full end-to-end deployment and testing of both samples (Durable Text Analysis on `azfilefunc-func` and ffmpeg Image Processing on `azfilefunc-ffmpeg`), four significant gotchas were discovered that would block users following the docs. These needed to be documented across all relevant files.
+
+## Decision
+
+Updated 10 documentation files to cover 4 deployment gotchas:
+
+1. **`allowSharedKeyAccess` + enterprise Azure Policy** — Azure Files SMB mounts require shared key access, but enterprise policies may block it. Documented the `Az.Sec.DisableLocalAuth.Storage::Skip` tag workaround.
+2. **EventGrid system topic for blob triggers** — Flex Consumption blob triggers with `source="EventGrid"` do not auto-create the system topic or event subscription. Documented manual `az eventgrid` CLI commands.
+3. **Function key auth + Durable Functions response shape** — Deployed apps require `?code=...` for HTTP endpoints. Start response returns `id` (not `instance_id`). Custom status endpoints may return null — `statusQueryGetUri` is the reliable polling approach.
+4. **Separate function apps per sample** — Each sample should be deployed to its own Flex Consumption app for isolation, independent scaling, and cleaner monitoring.
+
+## Files Updated
+
+- `docs/quickstart-durable-text-analysis.md` — Auth key, response shape, polling via `statusQueryGetUri`, enterprise policy
+- `docs/quickstart-ffmpeg-processing.md` — EventGrid setup (new Step 5), auth key, enterprise policy
+- `docs/tutorial-shared-file-access.md` — Shared key requirement, EventGrid note
+- `docs/concepts/flex-consumption-os-mounts.md` — New enterprise policy section with Bicep example
+- `docs/concepts/azure-files-with-functions.md` — Shared key access callout
+- `docs/concepts/large-binaries-on-mounts.md` — Separate function app recommendation
+- `infra/README.md` — Full deployment gotchas section with CLI commands for all 4 items
+- `README.md` (root) — Known Issues & Gotchas table with links to infra README
+- `samples/durable-text-analysis/README.md` — Auth key, response shape, enterprise policy
+- `samples/ffmpeg-image-processing/README.md` — EventGrid trigger, auth key, enterprise policy, separate app recommendation
+
+## Rationale
+
+Users following the quickstarts would hit these issues and have no guidance. Documenting them with specific `az` CLI commands and Microsoft Learn callout syntax (`> [!IMPORTANT]`, `> [!NOTE]`) ensures users can self-serve past these blockers.
+# Decision: ffmpeg Sample Deployed as Separate Function App
+
+**Author:** Kaylee (Cloud Dev)
+**Date:** 2026-03-06
+**Status:** Implemented
+
+## Context
+
+The ffmpeg-image-processing sample needed deployment to Azure. The existing function app `azfilefunc-func` runs the Durable Text Analysis sample. We needed to decide whether to merge both samples into one app or deploy separately.
+
+## Decision
+
+Deployed the ffmpeg sample as a **separate function app** (`azfilefunc-ffmpeg`) in the same resource group and using the same storage account.
+
+### Rationale
+- Keeps samples isolated — each can be deployed/updated independently
+- Avoids function name collisions or host.json conflicts
+- Matches Azure Samples gallery convention where each sample stands alone
+- Both apps share storage account `stazfilefuncdev` and App Insights `azfilefunc-insights`
+
+## What Was Deployed
+
+| Resource | Name/Value |
+|----------|-----------|
+| Function app | `azfilefunc-ffmpeg` |
+| Hosting plan | `ASP-rgazurefilessamplesdev-54d7` (Flex Consumption FC1) |
+| Principal ID | `7e54e1c1-04e7-4910-a627-aa570b6454bd` |
+| Mount | `/mounts/tools` → `tools` share |
+| ffmpeg version | 7.0.2 static Linux x86_64 |
+| Blob containers | `images-input`, `images-output` |
+| EventGrid topic | `stazfilefuncdev-topic` |
+| EventGrid subscription | `ffmpeg-blob-trigger` |
+| Health endpoint | `https://azfilefunc-ffmpeg.azurewebsites.net/api/health` |
+| Blob ext key | `REDACTED` |
+
+## Key Findings
+
+1. **EventGrid subscriptions are NOT auto-created** for Flex Consumption blob triggers. Manual creation required: system topic + event subscription with blobs_extension webhook.
+2. **`az functionapp create --flexconsumption-location`** correctly provisions Flex Consumption apps with `functionAppConfig` — simpler than Bicep for quick deployments.
+3. **ffmpeg static binary** from johnvansickle.com works perfectly on Azure Files OS mounts. The 80MB binary is loaded from the mount at `/mounts/tools/ffmpeg` with no cold start penalty beyond first SMB access.
+
+## E2E Test Results
+
+- Input: 100×75 PNG (15,658 bytes) uploaded to `images-input`
+- Output: 800×600 PNG (111,973 bytes) in `images-output`
+- Trigger latency: < 3 seconds (EventGrid near-instant)
+- Processing: ffmpeg resized via stdin/stdout pipes, no temp files
+
+## Impact
+
+Both Azure Files mount samples are now live and testable in `rg-azure-files-samples-dev`. The infra scripts (`infra/scripts/deploy-sample.sh`) may need updating to reflect the two-app pattern if we want reproducible deployments from Bicep.

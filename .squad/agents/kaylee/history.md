@@ -42,3 +42,28 @@
   - Deleted stale compiled JSON files for the three rewritten modules. Mount JSON files untouched.
   - All 67 tests pass. Reference: https://github.com/Azure-Samples/azure-functions-flex-consumption-samples
   - Key learning: Flex Consumption's `functionAppConfig` is mandatory — without it the app deploys as a regular consumption plan. The runtime config (language + version) goes in `functionAppConfig.runtime`, NOT in `linuxFxVersion`.
+
+- **2026-03-06 — First successful end-to-end deployment.** Deployed Durable Text Analysis sample to Azure (subscription: thalme, RG: `rg-azure-files-samples-dev`, region: eastus). Full infrastructure via `infra/main.bicep` orchestrating all 4 modules in dependency order. Resources: storage account `stazfilefuncdev`, function app `azfilefunc-func` (Flex Consumption FC1, Python 3.11), App Insights + Log Analytics, 3 RBAC role assignments, 2 Azure Files OS mounts (`/mounts/data`, `/mounts/tools`). Key issue hit: Microsoft corporate policy blocks `allowSharedKeyAccess: true` on storage accounts. Fixed by adding tag `Az.Sec.DisableLocalAuth.Storage::Skip` to the storage account. Azure Files mounts require shared key access — no managed identity option for SMB mounts yet. Code deployed via `func azure functionapp publish`. Orchestration tested end-to-end: 3 text files analysed from mounted `/mounts/data/` share, fan-out/fan-in completed, full aggregated results returned. Orchestration completed in ~10 seconds.
+
+- **2026-03-06 — ffmpeg-image-processing sample deployed and tested end-to-end.** Created a second Flex Consumption function app `azfilefunc-ffmpeg` in `rg-azure-files-samples-dev` to keep samples isolated. Infrastructure deployed via `az` CLI:
+  - Function app: `azfilefunc-ffmpeg` (FC1 SKU, Python 3.11, system-assigned managed identity)
+  - Hosting plan: `ASP-rgazurefilessamplesdev-54d7` (auto-created by `az functionapp create --flexconsumption-location`)
+  - RBAC: Storage Blob Data Owner, Queue Data Contributor, Table Data Contributor assigned to principal `7e54e1c1-04e7-4910-a627-aa570b6454bd`
+  - App settings: managed identity storage URIs, `FFMPEG_PATH=/mounts/tools/ffmpeg`, AAD App Insights auth
+  - Azure Files mount: `/mounts/tools` → `tools` share (SMB, shared key)
+  - ffmpeg 7.0.2 static Linux x86_64 binary (~80MB) + ffprobe uploaded to `tools` share from johnvansickle.com
+  - Blob containers: `images-input` and `images-output` created
+  - EventGrid: system topic `stazfilefuncdev-topic` + subscription `ffmpeg-blob-trigger` filtering `BlobCreated` on `images-input`
+  - Code deployed via `func azure functionapp publish azfilefunc-ffmpeg --python`
+  - Health endpoint confirms ffmpeg accessible: `GET /api/health` → `{"status": "healthy", "ffmpeg_available": true}`
+  - E2E test: uploaded 100×75 PNG (15KB) → blob trigger fired → ffmpeg resized to 800×600 PNG (112KB) → written to `images-output`. Processing was near-instant (EventGrid trigger latency < 3 seconds).
+  - Key learning: Flex Consumption blob triggers with `source="EventGrid"` do NOT auto-create the EventGrid system topic or subscription. You must create them manually: (1) `az eventgrid system-topic create` on the storage account, (2) `az eventgrid system-topic event-subscription create` with the function's blobs_extension webhook URL and `--subject-begins-with` filter for the container.
+  - Key learning: The `az functionapp create --flexconsumption-location` flag creates a Flex Consumption app with `functionAppConfig` automatically — no need for Bicep for quick deployments. It also creates the deployment blob container.
+  - Key learning: The deployment connection string approach (`DEPLOYMENT_STORAGE_CONNECTION_STRING`) is used by CLI-created apps instead of managed identity for deployment storage. Existing managed identity pattern in Bicep modules is still better for production.
+
+- **2026-03-06 — Documentation updated with deployment gotchas (10 files).** After live end-to-end deployment and testing of both samples, updated all documentation to reflect 4 key gotchas discovered:
+  1. **`allowSharedKeyAccess` + enterprise policy:** Azure Files SMB mounts require shared key access. Enterprise subscriptions may block this via policy. Workaround: add tag `Az.Sec.DisableLocalAuth.Storage::Skip`. Added to: quickstart-durable, quickstart-ffmpeg, tutorial, flex-consumption-os-mounts, azure-files-with-functions, infra/README, root README, both sample READMEs.
+  2. **EventGrid system topic not auto-created:** Flex Consumption blob triggers with `source="EventGrid"` do NOT auto-create the system topic or subscription. Added full `az` CLI commands for manual setup. Added to: quickstart-ffmpeg, tutorial, infra/README, root README, ffmpeg sample README.
+  3. **Function key auth + response shape:** Deployed apps require `?code=...` for HTTP endpoints. Durable start response returns `id` (not `instance_id`). Custom `/api/status/{id}` endpoint returns null — use `statusQueryGetUri` instead. Fixed quickstart-durable polling instructions, added auth notes to both quickstarts and sample READMEs.
+  4. **Separate function apps per sample:** Documented recommendation to deploy each sample to its own Flex Consumption app for isolation. Added to: large-binaries concept doc, infra/README, root README, ffmpeg sample README.
+  - Files updated: `docs/quickstart-durable-text-analysis.md`, `docs/quickstart-ffmpeg-processing.md`, `docs/tutorial-shared-file-access.md`, `docs/concepts/flex-consumption-os-mounts.md`, `docs/concepts/azure-files-with-functions.md`, `docs/concepts/large-binaries-on-mounts.md`, `infra/README.md`, `README.md`, `samples/durable-text-analysis/README.md`, `samples/ffmpeg-image-processing/README.md`.
