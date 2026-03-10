@@ -1,3 +1,18 @@
 # Squad: ignore generated logs
 .squad/orchestration-log/
 .squad/log/
+.copilot
+.github
+.pytest_cache
+node_modules
+dist
+build
+*.log
+*.tmp
+*.bak
+*.swp
+.DS_Store
+pytest.ini
+squad.config.ts
+tests
+test_env

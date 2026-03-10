@@ -1,7 +1,0 @@
-# Azure Functions v2 programming model
-azure-functions>=1.21.0,<2.0.0
-
-# Pillow — used for optional image metadata inspection.
-# Not strictly required for ffmpeg processing, but handy for
-# pre-validation and thumbnail extraction.
-Pillow>=10.0.0,<11.0.0
