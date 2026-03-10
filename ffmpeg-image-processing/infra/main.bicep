@@ -21,7 +21,7 @@ param appServicePlanName string = ''
 param logAnalyticsName string = ''
 param resourceGroupName string = ''
 param storageAccountName string = ''
-param eventGridTopicName string = ''
+param eventGridTopicName string = ''  // Used by eventGridTopic module; kept for override flexibility
 
 // Function app configuration
 param instanceMemoryMB int = 2048
@@ -211,21 +211,9 @@ module azureFilesMount './app/mounts.bicep' = {
   ]
 }
 
-// EventGrid subscription for blob created events
-module eventGridSubscription './app/eventgrid.bicep' = {
-  name: 'eventGridSubscription'
-  scope: rg
-  params: {
-    eventGridTopicName: !empty(eventGridTopicName) ? eventGridTopicName : '${abbrs.eventGridTopics}${resourceToken}'
-    functionAppUri: functionApp.outputs.uri
-    functionAppName: functionApp.outputs.name
-    containerName: 'images-input'
-  }
-  dependsOn: [
-    eventGridTopic
-    functionApp
-  ]
-}
+// NOTE: EventGrid subscription is created by scripts/post-up.sh after code is
+// deployed. The subscription needs the blobs_extension system key, which only
+// exists once the function host has started with deployed code.
 
 // Outputs
 output AZURE_LOCATION string = location
@@ -238,3 +226,4 @@ output AZURE_STORAGE_ACCOUNT_NAME string = storage.outputs.name
 output AZURE_STORAGE_FILE_SHARE_NAME string = 'tools'
 output AZURE_STORAGE_INPUT_CONTAINER string = 'images-input'
 output AZURE_STORAGE_OUTPUT_CONTAINER string = 'images-output'
+output AZURE_EVENTGRID_TOPIC_NAME string = eventGridTopic.outputs.name

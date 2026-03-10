@@ -8,10 +8,12 @@ Whether you're building a data processing pipeline, running compute-intensive wo
 
 ### Two Complete Samples
 
+Each sample is a fully self-contained, `azd`-compatible project with its own infrastructure using Azure Verified Modules (AVM).
+
 | Sample | Scenario | Key Concepts |
 |--------|----------|--------------|
-| **[Durable Text Analysis](./samples/durable-text-analysis)** | Orchestrate parallel text file analysis using Durable Functions fan-out/fan-in pattern against files shared across instances | Durable Functions, fan-out/fan-in, shared mount access, distributed coordination |
-| **[FFmpeg Image Processing](./samples/ffmpeg-image-processing)** | Process images and video using ffmpeg binary deployed on an OS mount, triggered via Blob Storage | Large binary execution on mounts, function triggers, subprocess calls, cost optimization |
+| **[Durable Text Analysis](./durable-text-analysis)** | Orchestrate parallel text file analysis using Durable Functions fan-out/fan-in pattern against files shared across instances | Durable Functions, fan-out/fan-in, shared mount access, distributed coordination |
+| **[FFmpeg Image Processing](./ffmpeg-image-processing)** | Process images and video using ffmpeg binary deployed on an OS mount, triggered via EventGrid Blob Storage events | Large binary execution on mounts, function triggers, subprocess calls, cost optimization |
 
 ### Documentation
 
@@ -31,8 +33,8 @@ Before you begin, you'll need:
 
 - **Azure subscription** — [Create a free account](https://azure.microsoft.com/free/) if you don't have one
 - **Azure CLI** — [Install](https://learn.microsoft.com/cli/azure/install-azure-cli)
-- **Azure Functions Core Tools** — [Install](https://learn.microsoft.com/azure/azure-functions/functions-run-local?tabs=linux%2Ccsharp%2Cbash)
-- **Python 3.9+** — [Install](https://www.python.org/downloads/)
+- **Azure Developer CLI (azd)** — [Install](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd)
+- **Python 3.11** — [Install](https://www.python.org/downloads/)
 - **Git** — [Install](https://git-scm.com/)
 
 ### Quick Start
@@ -41,15 +43,15 @@ Choose a scenario:
 
 **I want to learn about parallel processing with Durable Functions:**
 ```bash
-cd samples/durable-text-analysis
-cat README.md
+cd durable-text-analysis
+azd up
 ```
 Then follow the [Durable Text Analysis Quickstart](./docs/quickstart-durable-text-analysis.md).
 
 **I want to use large executables (ffmpeg, ImageMagick) in my functions:**
 ```bash
-cd samples/ffmpeg-image-processing
-cat README.md
+cd ffmpeg-image-processing
+azd up
 ```
 Then follow the [FFmpeg Image Processing Quickstart](./docs/quickstart-ffmpeg-processing.md).
 
@@ -80,43 +82,59 @@ The catch? Mounts only work on **Flex Consumption** (and App Service). Premium a
 ├── SECURITY.md
 ├── CODE_OF_CONDUCT.md
 │
-├── samples/
-│   ├── durable-text-analysis/          # Sample 1: Durable Functions + shared mounts
-│   │   ├── README.md
+├── durable-text-analysis/              # Sample 1: Durable Functions + shared mounts
+│   ├── azure.yaml                      # azd project configuration
+│   ├── README.md
+│   ├── src/                            # Function app code
 │   │   ├── function_app.py
 │   │   ├── orchestrator.py
 │   │   ├── activities.py
 │   │   ├── requirements.txt
-│   │   └── infra/
-│   │
-│   └── ffmpeg-image-processing/        # Sample 2: Large binary execution on mounts
-│       ├── README.md
-│       ├── function_app.py
-│       ├── process_image.py
-│       ├── requirements.txt
-│       └── infra/
+│   │   └── host.json
+│   ├── infra/                          # Infrastructure as Code (AVM)
+│   │   ├── main.bicep
+│   │   ├── abbreviations.json
+│   │   └── app/
+│   │       ├── function.bicep
+│   │       ├── rbac.bicep
+│   │       └── mounts.bicep
+│   └── scripts/
+│       └── post-up.sh
 │
-├── infra/
-│   ├── modules/                        # Shared Bicep infrastructure modules
-│   │   ├── function-app.bicep
-│   │   ├── storage-account.bicep
-│   │   ├── azure-files-mount.bicep
-│   │   └── monitoring.bicep
-│   ├── scripts/
-│   │   ├── setup-azure-files.sh
-│   │   ├── deploy-sample.sh
-│   │   └── cleanup.sh
-│   └── README.md
+├── ffmpeg-image-processing/            # Sample 2: Large binary execution on mounts
+│   ├── azure.yaml                      # azd project configuration
+│   ├── README.md
+│   ├── src/                            # Function app code
+│   │   ├── function_app.py
+│   │   ├── process_image.py
+│   │   ├── requirements.txt
+│   │   └── host.json
+│   ├── infra/                          # Infrastructure as Code (AVM)
+│   │   ├── main.bicep
+│   │   ├── abbreviations.json
+│   │   └── app/
+│   │       ├── function.bicep
+│   │       ├── rbac.bicep
+│   │       └── mounts.bicep
+│   └── scripts/
+│       └── post-up.sh
 │
-└── docs/
-    ├── quickstart-durable-text-analysis.md
-    ├── quickstart-ffmpeg-processing.md
-    ├── tutorial-shared-file-access.md
-    ├── concepts/
-    │   ├── flex-consumption-os-mounts.md
-    │   ├── azure-files-with-functions.md
-    │   └── large-binaries-on-mounts.md
-    └── images/
+├── docs/                               # Comprehensive documentation
+│   ├── quickstart-durable-text-analysis.md
+│   ├── quickstart-ffmpeg-processing.md
+│   ├── tutorial-shared-file-access.md
+│   └── concepts/
+│       ├── flex-consumption-os-mounts.md
+│       ├── azure-files-with-functions.md
+│       └── large-binaries-on-mounts.md
+│
+├── tests/                              # Test suite (67 tests)
+│   ├── test_infra/
+│   └── test_samples/
+│
+└── .github/
+    └── workflows/
+        └── ci.yml                      # CI/CD pipeline
 ```
 
 ## 📖 Learning Paths
@@ -149,19 +167,32 @@ The catch? Mounts only work on **Flex Consumption** (and App Service). Premium a
 
 See [Shared File Access Patterns](./docs/tutorial-shared-file-access.md) for detailed guidance.
 
+## ⚠️ Known Issues & Deployment Gotchas
+
+These were discovered during live end-to-end Azure testing. Read them before deploying.
+
+| Gotcha | Impact | Details |
+|--------|--------|---------|
+| **`allowSharedKeyAccess` and enterprise policy** | Azure Files mounts fail silently | Enterprise subscriptions may enforce `allowSharedKeyAccess: false`. Add tag `Az.Sec.DisableLocalAuth.Storage::Skip` to exempt the storage account. This is configured in the sample bicep templates. |
+| **EventGrid system topic** | Blob trigger never fires | Flex Consumption EventGrid blob triggers require creation of the EventGrid system topic and event subscription. This is configured in the ffmpeg sample. |
+| **Function key required for HTTP endpoints** | `401 Unauthorized` on deployed app | Include `?code=<function-key>` in all HTTP requests. Get the key via `az functionapp keys list` or Azure Portal. |
+| **Durable Functions response shape** | Polling may fail | The start endpoint returns a management payload. Use the `statusQueryGetUri` from the response to poll orchestration status. |
+
+For deployment troubleshooting, see each sample's README.
+
 ## ❓ FAQ
 
 **Q: Do I need to use Bicep to deploy these samples?**  
-A: The samples include Bicep templates for automation, but you can also deploy resources manually via the Azure Portal or CLI scripts. See each sample's README for options.
+A: The samples use `azd` (Azure Developer CLI) which orchestrates Bicep deployment. You can run `azd up` to deploy everything automatically, or use the Bicep templates manually with `az deployment sub create`.
 
 **Q: Can I use these samples with other languages (C#, Node.js, Java)?**  
-A: These samples are Python-specific. However, the concepts (OS mounts, Flex Consumption, Durable Functions) apply across languages. Adapt the code to your language using the [Azure Functions documentation](https://learn.microsoft.com/azure/azure-functions/).
+A: These samples are Python-specific. However, the concepts (OS mounts, Flex Consumption, Azure Files) apply across languages. The infrastructure (Bicep templates) can be reused for any language runtime.
 
 **Q: What are the limits for file shares mounted on Flex Consumption?**  
 A: See [Azure Files quotas and performance](https://learn.microsoft.com/azure/storage/files/storage-files-scale-targets) and [Flex Consumption limits](https://learn.microsoft.com/azure/azure-functions/flex-consumption-plan). Key: Flex Consumption instances are Linux-based and handle SMB mounts efficiently.
 
 **Q: Can I mount multiple shares on the same function app?**  
-A: Yes. Each mount uses a unique local path on the function container. See [Azure Files with Functions](./docs/concepts/azure-files-with-functions.md) for configuration details.
+A: Yes. Each mount uses a unique local path on the function container. The `mounts.bicep` module accepts an array of mount configurations. See [Azure Files with Functions](./docs/concepts/azure-files-with-functions.md) for configuration details.
 
 **Q: What's the difference between an OS mount and a storage binding?**  
 A: OS mounts give you direct file system access (POSIX semantics). Storage bindings are Azure SDK integrations that read/write blobs or queues via HTTP. Use bindings for cloud-to-cloud integration; use mounts when you need file system semantics or want to avoid network overhead. See [Shared File Access Patterns](./docs/tutorial-shared-file-access.md).
