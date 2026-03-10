@@ -1,0 +1,5 @@
+# Azure Functions v2 programming model
+azure-functions>=1.21.0,<2.0.0
+# Azure SDK for blob output (managed identity auth)
+azure-identity>=1.15.0
+azure-storage-blob>=12.19.0
