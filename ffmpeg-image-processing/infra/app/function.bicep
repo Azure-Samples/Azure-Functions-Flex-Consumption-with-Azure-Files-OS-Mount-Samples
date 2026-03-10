@@ -52,7 +52,7 @@ resource stg 'Microsoft.Storage/storageAccounts@2023-05-01' existing = {
   name: storageAccountName
 }
 
-// Merge base app settings with custom ones
+// Build app settings array from object
 var baseAppSettings = {
   AzureWebJobsStorage__accountName: storageAccountName
   AzureWebJobsStorage__credential: 'managedidentity'
@@ -66,19 +66,28 @@ var baseAppSettings = {
 
 var allAppSettings = union(baseAppSettings, appSettings)
 
-// Deploy function app using AVM module
-module processor 'br/public:avm/res/web/site:0.15.1' = {
-  name: '${serviceName}-flex-consumption'
-  params: {
-    kind: 'functionapp,linux'
-    name: name
-    location: location
-    tags: union(tags, { 'azd-service-name': serviceName })
-    serverFarmResourceId: appServicePlanId
-    managedIdentities: {
-      systemAssigned: identityType == 'SystemAssigned'
-      userAssignedResourceIds: identityType == 'UserAssigned' ? [identityId] : []
+// Convert app settings object to the name/value array format required by siteConfig
+var appSettingsArray = [for key in objectKeys(allAppSettings): {
+  name: key
+  value: allAppSettings[key]
+}]
+
+// Deploy function app directly (AVM web/site module doesn't propagate functionAppConfig)
+resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
+  name: name
+  location: location
+  kind: 'functionapp,linux'
+  tags: union(tags, { 'azd-service-name': serviceName })
+  identity: identityType == 'UserAssigned' ? {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${identityId}': {}
     }
+  } : {
+    type: 'SystemAssigned'
+  }
+  properties: {
+    serverFarmId: appServicePlanId
     functionAppConfig: {
       deployment: {
         storage: {
@@ -97,12 +106,11 @@ module processor 'br/public:avm/res/web/site:0.15.1' = {
       runtime: { name: runtimeName, version: runtimeVersion }
     }
     siteConfig: {
-      alwaysOn: false
+      appSettings: appSettingsArray
     }
-    appSettingsKeyValuePairs: allAppSettings
   }
 }
 
-output name string = processor.outputs.name
-output uri string = 'https://${processor.outputs.defaultHostname}'
-output principalId string = identityType == 'SystemAssigned' ? (processor.outputs.?systemAssignedMIPrincipalId ?? '') : ''
+output name string = functionApp.name
+output uri string = 'https://${functionApp.properties.defaultHostName}'
+output principalId string = identityType == 'SystemAssigned' ? (functionApp.identity.principalId ?? '') : ''
