@@ -162,8 +162,23 @@ curl -s "$FUNC_URL" -o /dev/null -w "%{http_code}"
 | `401 Unauthorized` on POST | Missing or wrong function key | Get the key: `az functionapp keys list -n {app} -g {rg} --query "functionKeys.default" -o tsv` and pass it as `?code=<key>` |
 | Orchestration returns empty results | No text files on mount | Re-run `./scripts/post-up.sh` to upload sample files, or verify files exist: `az storage file list --account-name {storage} --share-name data --auth-mode key -o table` |
 | `runtimeStatus` stuck on `"Running"` | Activity failure | Check Application Insights for exceptions. Common cause: mount not attached yet (RBAC propagation takes 1–2 minutes) |
-| `allowSharedKeyAccess` deployment error | Enterprise policy | The template already sets the `Az.Sec.DisableLocalAuth.Storage::Skip` tag. If your org blocks shared key access entirely, you may need a policy exemption for Azure Files mounts. |
+| `allowSharedKeyAccess` deployment error | Enterprise policy blocks key-based auth | For production, prefer network isolation over policy skips: use VNet integration for the Function App and restrict storage access using Private Endpoints (recommended) or Service Endpoints for Azure Files/Storage. Keep RBAC/managed identity and disable public access where possible. |
 | Function app returns 404 | Code not deployed | Run `azd deploy` to push the function code. The function host needs to start before endpoints are available. |
+
+## Production Hardening (Recommended)
+
+For production deployments, treat this sample as a starting point and add network isolation:
+
+1. **Add VNet integration for the Function App** so outbound access is routed through your virtual network.
+2. **Secure the storage account used for Azure Files**:
+   - Prefer **Private Endpoints** for `file` (and `blob` when used by your app).
+   - Alternatively, use **Service Endpoints** with storage firewall rules.
+3. **Disable public network access** on the storage account when using Private Endpoints.
+4. **Use private DNS zones** for Private Endpoints so `*.file.core.windows.net` and `*.blob.core.windows.net` resolve privately.
+5. **Keep identity-based access (RBAC/managed identity)** and avoid Shared Key access in production.
+
+> [!IMPORTANT]
+> Private Endpoints are the recommended production pattern for Azure Files. Service Endpoints can work, but they provide less isolation than Private Link.
 
 ## Customization
 
