@@ -554,3 +554,92 @@ Deployed the ffmpeg sample as a **separate function app** (`azfilefunc-ffmpeg`) 
 ## Impact
 
 Both Azure Files mount samples are now live and testable in `rg-azure-files-samples-dev`. The infra scripts (`infra/scripts/deploy-sample.sh`) may need updating to reflect the two-app pattern if we want reproducible deployments from Bicep.
+
+# Decision: EventGrid Subscription in Post-Deploy Script
+
+**Author:** Kaylee (Cloud Dev)  
+**Date:** 2026-03-07  
+**Status:** Implemented
+
+## Context
+
+The `eventgrid.bicep` module used `listKeys()` to fetch the `blobs_extension` system key at provision time. But system keys only exist after function code deploys and the host starts — creating a chicken-and-egg failure on first `azd up`.
+
+Additionally, the webhook URL was wrong: it pointed to EventGrid extension (`/runtime/webhooks/EventGrid`) instead of blob extension (`/runtime/webhooks/blobs`).
+
+## Decision
+
+- **Deleted** `infra/app/eventgrid.bicep` and removed its module call from `main.bicep`
+- **Kept** the EventGrid system topic in Bicep (no code dependency)
+- **Moved** EventGrid subscription creation to `scripts/post-up.sh` (runs as `postdeploy` hook in `azure.yaml`)
+- Script retrieves `blobs_extension` system key via `az functionapp keys list` with retry logic, then creates subscription
+
+## Consequences
+
+`azd up` now works end-to-end without manual intervention. EventGrid subscription uses correct blob extension webhook. Slight complexity increase in post-deploy script, but eliminates hard deployment failure.
+
+# Decision: Flex Consumption Requires Direct Microsoft.Web/sites (no AVM)
+
+**Author:** Kaylee (Cloud Dev)  
+**Date:** 2026-03-10  
+**Status:** Applied
+
+## Context
+
+AVM module `br/public:avm/res/web/site:0.15.1` silently drops the `functionAppConfig` property, which is mandatory for Flex Consumption. Without it, deployment storage auth fails with 403.
+
+Additionally, AVM storage module defaults to `publicNetworkAccess: None` with `defaultAction: Deny`, blocking function app access to its own storage.
+
+## Decision
+
+Both `durable-text-analysis/infra/app/function.bicep` and `ffmpeg-image-processing/infra/app/function.bicep` now use direct `Microsoft.Web/sites@2024-04-01` resource instead of AVM module. Storage explicitly sets `publicNetworkAccess: 'Enabled'` and `networkAcls: { defaultAction: 'Allow', bypass: 'AzureServices' }`.
+
+## Implications
+
+- If AVM fixes this in future, no urgency to migrate — direct resource is simple and correct
+- Any new samples should copy either function.bicep as starting point
+- Both function.bicep files are now structurally identical
+
+# Decision: Documentation Audit & Code Alignment Fixes
+
+**Author:** Inara (DevRel)  
+**Date:** 2026-03-07  
+**Status:** Complete
+
+## Summary
+
+Audited all 3 docs against actual source code, Bicep infrastructure, and scripts. Fixed 9 systematic discrepancies.
+
+## Issues Fixed
+
+1. **Mount Paths (3 docs):** `/mnt/filedata` and `/mnt/ffmpeg_binaries` → `/mounts/data/` and `/mounts/tools/` (verified in Bicep, activities.py, function_app.py, process_image.py)
+
+2. **Local Settings (2 quickstarts):** Removed references to non-existent `local.settings.json.example`, replaced with inline instructions
+
+3. **EventGrid Setup (FFmpeg quickstart):** Added Step 4.2 documenting requirement to run `scripts/post-up.sh` after infrastructure deployment
+
+4. **TEMP_PATH (FFmpeg quickstart):** Removed unused environment variable from docs
+
+5. **Requirements (FFmpeg quickstart):** Corrected from false `azure-storage-blob` and `python-dotenv` to actual `azure-functions` only
+
+6. **Share Name (FFmpeg quickstart):** "ffmpeg-binaries" → "tools" (verified in `infra/main.bicep`)
+
+7. **Health Check (FFmpeg quickstart):** Added Step 6.1 documenting GET `/api/health` endpoint (verified in `src/function_app.py` lines 57-71)
+
+8. **Activity Description (Durable quickstart):** "sentiment analysis (mock)" → "word count, line count, character count, frequency" (verified in `src/activities.py` lines 55-99)
+
+9. **Path Consistency (Tutorial):** Updated all examples to `/mounts/` uniformly
+
+## Files Changed
+
+- `docs/quickstart-durable-text-analysis.md`
+- `docs/quickstart-ffmpeg-processing.md`
+- `docs/tutorial-shared-file-access.md`
+
+## Impact
+
+Readers can follow docs without cross-referencing source code. All paths, variables, and configuration steps match actual deployment.
+
+## Standard
+
+Docs must be audited against source code, Bicep infrastructure, and scripts before publication. All paths, configuration keys, file names, and API responses must be verified against actual implementation.
