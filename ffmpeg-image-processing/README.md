@@ -1,3 +1,22 @@
+<!--
+---
+name: FFmpeg image processing with Azure Functions Flex Consumption and Azure Files
+description: Python event-driven image processing sample that uses FFmpeg from an Azure Files OS mount in Azure Functions Flex Consumption, with Blob Storage triggers and azd/Bicep deployment.
+page_type: sample
+products:
+- azure-functions
+- azure-files
+- azure-storage
+- azure-event-grid
+- azure
+urlFragment: functions-flex-consumption-ffmpeg-image-processing-azure-files
+languages:
+- python
+- bicep
+- azdeveloper
+---
+-->
+
 # FFmpeg Image Processing Sample
 
 This sample demonstrates event-driven image processing using FFmpeg on an Azure Files OS mount in a Flex Consumption Function App. Images uploaded to Blob Storage trigger the function via EventGrid, which processes them using FFmpeg tools mounted from Azure Files.

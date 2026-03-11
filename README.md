@@ -74,69 +74,6 @@ Traditional Azure Functions rely on **bindings** (blob input/output bindings, qu
 
 The catch? Mounts only work on **Flex Consumption** (and App Service). Premium and Consumption plans don't support them yet.
 
-## 🏗️ Repository Structure
-
-```
-├── README.md                           # ← You are here
-├── LICENSE
-├── SECURITY.md
-├── CODE_OF_CONDUCT.md
-│
-├── durable-text-analysis/              # Sample 1: Durable Functions + shared mounts
-│   ├── azure.yaml                      # azd project configuration
-│   ├── README.md
-│   ├── src/                            # Function app code
-│   │   ├── function_app.py
-│   │   ├── orchestrator.py
-│   │   ├── activities.py
-│   │   ├── requirements.txt
-│   │   └── host.json
-│   ├── infra/                          # Infrastructure as Code (AVM)
-│   │   ├── main.bicep
-│   │   ├── abbreviations.json
-│   │   └── app/
-│   │       ├── function.bicep
-│   │       ├── rbac.bicep
-│   │       └── mounts.bicep
-│   └── scripts/
-│       └── post-up.sh
-│
-├── ffmpeg-image-processing/            # Sample 2: Large binary execution on mounts
-│   ├── azure.yaml                      # azd project configuration
-│   ├── README.md
-│   ├── src/                            # Function app code
-│   │   ├── function_app.py
-│   │   ├── process_image.py
-│   │   ├── requirements.txt
-│   │   └── host.json
-│   ├── infra/                          # Infrastructure as Code (AVM)
-│   │   ├── main.bicep
-│   │   ├── abbreviations.json
-│   │   └── app/
-│   │       ├── function.bicep
-│   │       ├── rbac.bicep
-│   │       └── mounts.bicep
-│   └── scripts/
-│       └── post-up.sh
-│
-├── docs/                               # Comprehensive documentation
-│   ├── quickstart-durable-text-analysis.md
-│   ├── quickstart-ffmpeg-processing.md
-│   ├── tutorial-shared-file-access.md
-│   └── concepts/
-│       ├── flex-consumption-os-mounts.md
-│       ├── azure-files-with-functions.md
-│       └── large-binaries-on-mounts.md
-│
-├── tests/                              # Test suite (67 tests)
-│   ├── test_infra/
-│   └── test_samples/
-│
-└── .github/
-    └── workflows/
-        └── ci.yml                      # CI/CD pipeline
-```
-
 ## 📖 Learning Paths
 
 ### Path 1: I'm New to Azure Functions
@@ -174,7 +111,7 @@ These were discovered during live end-to-end Azure testing. Read them before dep
 | Gotcha | Impact | Details |
 |--------|--------|---------|
 | **`allowSharedKeyAccess` and enterprise policy** | Azure Files mounts fail silently | Enterprise subscriptions may enforce `allowSharedKeyAccess: false`. Add tag `Az.Sec.DisableLocalAuth.Storage::Skip` to exempt the storage account. This is configured in the sample bicep templates. |
-| **EventGrid system topic** | Blob trigger never fires | Flex Consumption EventGrid blob triggers require creation of the EventGrid system topic and event subscription. This is configured in the ffmpeg sample. |
+| **EventGrid system topic** | Blob trigger never fires | Flex Consumption EventGrid blob triggers require creation of the EventGrid system topic and event subscription. This is configured in the ffmpeg sample is a post deploy shell script called by AZD. |
 | **Function key required for HTTP endpoints** | `401 Unauthorized` on deployed app | Include `?code=<function-key>` in all HTTP requests. Get the key via `az functionapp keys list` or Azure Portal. |
 | **Durable Functions response shape** | Polling may fail | The start endpoint returns a management payload. Use the `statusQueryGetUri` from the response to poll orchestration status. |
 

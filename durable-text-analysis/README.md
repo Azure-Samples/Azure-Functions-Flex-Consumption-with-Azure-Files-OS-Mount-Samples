@@ -1,3 +1,21 @@
+<!--
+---
+name: Durable text analysis with Azure Functions Flex Consumption and Azure Files
+description: Python Durable Functions fan-out/fan-in sample that analyzes text files from an Azure Files OS mount on Azure Functions Flex Consumption, provisioned and deployed with azd and Bicep.
+page_type: sample
+products:
+- azure-functions
+- azure-files
+- azure-storage
+- azure
+urlFragment: functions-flex-consumption-durable-text-analysis-azure-files
+languages:
+- python
+- bicep
+- azdeveloper
+---
+-->
+
 # Durable Text Analysis Sample
 
 This sample demonstrates a Durable Functions fan-out/fan-in orchestration that processes text files stored on an Azure Files OS mount in a Flex Consumption Function App. An HTTP trigger starts the orchestration, which fans out to analyze each text file in parallel and aggregates the results.
