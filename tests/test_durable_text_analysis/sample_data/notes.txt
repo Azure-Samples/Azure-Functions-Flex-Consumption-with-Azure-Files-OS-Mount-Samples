@@ -1,3 +1,0 @@
-Azure Files shares can be mounted at the OS level.
-This enables regular file I/O operations from function code.
-Multiple function instances share access to the same files.

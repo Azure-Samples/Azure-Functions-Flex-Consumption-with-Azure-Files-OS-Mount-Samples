@@ -1,7 +1,0 @@
-pytest>=7.4,<9
-pytest-asyncio>=0.21,<1
-pytest-mock>=3.11,<4
-pytest-cov>=4.1,<6
-responses>=0.23,<1
-azure-functions>=1.17,<2
-azure-functions-durable>=1.2,<2

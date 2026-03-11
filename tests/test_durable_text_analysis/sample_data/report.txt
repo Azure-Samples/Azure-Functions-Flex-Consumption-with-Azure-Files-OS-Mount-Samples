@@ -1,5 +1,0 @@
-Azure Functions Flex Consumption plan provides event-driven serverless compute for Azure.
-It features automatic and rapid scaling based on demand.
-Functions execute close to your data for low latency.
-The Flex Consumption plan is designed for variable workloads.
-Scaling decisions are made at the individual function level.
