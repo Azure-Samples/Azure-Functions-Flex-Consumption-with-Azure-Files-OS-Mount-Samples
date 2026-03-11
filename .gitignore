@@ -214,8 +214,7 @@ node_modules/
 .DS_Store
 
 # Squad / Copilot tooling
-.squad/orchestration-log/
-.squad/log/
+.squad/
 .copilot/
 .github/
 pytest.ini
