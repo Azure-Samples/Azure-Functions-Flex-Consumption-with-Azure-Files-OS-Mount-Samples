@@ -326,7 +326,7 @@ az group delete --name $RESOURCE_GROUP --yes
 
 **"ffmpeg: command not found"** — Verify the binary was uploaded to Azure Files. Check the mount path in your function app settings. Ensure the binary has execute permissions.
 
-**"Permission denied"** — The function app needs **Storage File Data SMB Share Contributor** role on the storage account. Verify the managed identity is assigned this role.
+**"Permission denied"** — Verify the storage account access key in the mount configuration is correct and hasn't been rotated. Check the function app's mount settings under **Settings > Configuration > Path Mappings** in the Azure Portal. Note: OS mounts use storage account keys, not managed identity RBAC.
 
 **"Blob trigger not firing"** — Ensure the function app's managed identity can read from the input blob container. Check the app's managed identity and assign **Storage Blob Data Reader** if needed.
 

@@ -343,7 +343,7 @@ az group delete --name $RESOURCE_GROUP --yes
 
 **"Mount path not found"** — Verify the mount is configured. Check your function app's **Settings > Configuration > Path Mappings** in the Azure Portal.
 
-**"Permission denied" when reading files** — Ensure the function app's managed identity has **Storage File Data SMB Share Contributor** role on the storage account.
+**"Permission denied" when reading files** — Verify the storage account access key in the mount configuration is correct and hasn't been rotated. Check the function app's mount settings under **Settings > Configuration > Path Mappings** in the Azure Portal. Note: OS mounts use storage account keys, not managed identity RBAC.
 
 **"Deployment failed"** — Check the Bicep parameters file (`infra/main.bicepparam`). Ensure all required values are set and the storage account name is globally unique.
 

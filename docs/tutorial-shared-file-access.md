@@ -79,7 +79,7 @@ def analyze_data(item: str) -> dict:
 
 ### Security Considerations
 
-1. **Managed Identity** — The function app's managed identity must have **Storage File Data SMB Share Contributor** role on the storage account
+1. **Storage Account Key** — Azure Files OS mounts on Flex Consumption authenticate using a **storage account access key** configured in the function app's mount settings. Managed identity with `Storage File Data SMB Share Contributor` RBAC is NOT supported for SMB mounts on Azure Functions. Keep the access key secure and rotate it periodically.
 2. **Read-Only Option** — If your workload doesn't need to write, restrict the mount to read-only (e.g., `ro` mount option in CIFS)
 3. **Quotas** — Set Azure Files share quotas to prevent runaway costs if instances write large files
 
@@ -203,7 +203,7 @@ def read_results() -> dict:
 ```
 
 **Key points:**
-- Both apps need their own managed identity with the appropriate role
+- Both apps need mount configuration referencing the same storage account and access key
 - Use file locks (e.g., `fcntl` on Linux) to prevent read/write race conditions
 - Azure Files supports concurrent reads; writes should be sequential or locked
 
@@ -212,18 +212,32 @@ def read_results() -> dict:
 
 ## Best Practices
 
-### 1. Use Managed Identity, Not Keys
+### 1. Understand the Two Auth Models
 
-```python
-# Bad: Storing connection strings
-connection_string = os.getenv("STORAGE_CONNECTION_STRING")
+Azure Files OS mounts and the Azure SDK use **different** authentication mechanisms:
 
-# Good: Let Azure SDK use managed identity
-from azure.storage.fileshare import ShareServiceClient
+- **OS mounts (SMB)** — Authenticated with a **storage account access key** at mount time. The key is stored in the function app's site configuration (`azureStorageAccounts`). Managed identity is NOT supported for SMB mounts on Azure Functions.
+- **Azure SDK (REST API)** — For programmatic access via `azure-storage-file-share`, use managed identity when possible.
 
-account_url = f"https://{storage_account}.file.core.windows.net"
-share_client = ShareServiceClient(account_url=account_url).get_share_client(share_name)
+```bicep
+// Mount config in Bicep — requires storage account key
+resource mountConfig 'Microsoft.Web/sites/config@2023-12-01' = {
+  parent: functionApp
+  name: 'azurestorageaccounts'
+  properties: {
+    dataMount: {
+      type: 'AzureFiles'
+      shareName: shareName
+      mountPath: '/mounts/data'
+      accountName: storageAccountName
+      accessKey: storageAccount.listKeys().keys[0].value  // ← Key required
+    }
+  }
+}
 ```
+
+> [!IMPORTANT]
+> Rotate storage account keys periodically. When you rotate keys, update the mount configuration on every function app that references the account.
 
 ### 2. Set Mount Quotas
 
@@ -365,8 +379,8 @@ reference_data = container.query_items(
                  ▼
     ┌─────────────────────┐
     │ Storage Account     │
-    │ (Managed Identity   │
-    │  auth + RBAC)       │
+    │ (Storage account    │
+    │  key auth for SMB)  │
     └─────────────────────┘
 ```
 
