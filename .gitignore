@@ -216,8 +216,4 @@ node_modules/
 # Squad / Copilot tooling
 .squad/
 .copilot/
-.github/
-pytest.ini
-squad.config.ts
-tests/
 test_env/
