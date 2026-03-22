@@ -218,7 +218,8 @@ node_modules/
 
 # Post-deploy script artifacts
 ffmpeg
-ffmpeg-*
+ffmpeg-extract/
+ffmpeg-static.tar.xz
 sample*.txt
 
 # Squad / Copilot tooling

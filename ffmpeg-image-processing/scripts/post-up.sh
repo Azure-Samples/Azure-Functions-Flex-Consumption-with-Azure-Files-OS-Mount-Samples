@@ -49,20 +49,27 @@ ACCOUNT_KEY=$(az storage account keys list \
   --query "[0].value" -o tsv)
 
 export AZURE_STORAGE_CONNECTION_TIMEOUT=300
-for attempt in 1 2 3; do
+UPLOAD_OK=false
+for attempt in 1 2 3 4 5; do
     az storage file upload \
       --account-name "$STORAGE_ACCOUNT" \
       --share-name "$FILE_SHARE" \
       --source ./ffmpeg \
       --account-key "$ACCOUNT_KEY" \
-      --timeout 300 && break
-    echo "   Upload attempt $attempt failed, retrying in 10 seconds..."
-    sleep 10
+      --timeout 300 && { UPLOAD_OK=true; break; }
+    echo "   Upload attempt $attempt failed, retrying in 15 seconds..."
+    sleep 15
 done
 unset AZURE_STORAGE_CONNECTION_TIMEOUT
 
 rm -f "$FFMPEG_ARCHIVE" ffmpeg
-echo "✅ ffmpeg uploaded to Azure Files."
+
+if [ "$UPLOAD_OK" = true ]; then
+    echo "✅ ffmpeg uploaded to Azure Files."
+else
+    echo "❌ Error: ffmpeg upload failed after 5 attempts."
+    exit 1
+fi
 echo ""
 
 # ---------------------------------------------------------------------------
