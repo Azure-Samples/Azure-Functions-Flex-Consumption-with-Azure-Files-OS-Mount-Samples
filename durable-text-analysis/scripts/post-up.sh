@@ -72,9 +72,14 @@ such as /mounts/data/ and supports concurrent reads from multiple instances.
 EOF
 
 echo "⬆️  Uploading sample files to Azure Files share..."
-az storage file upload --account-name "$STORAGE_ACCOUNT" --share-name "$FILE_SHARE" --source sample1.txt --path sample1.txt --auth-mode key
-az storage file upload --account-name "$STORAGE_ACCOUNT" --share-name "$FILE_SHARE" --source sample2.txt --path sample2.txt --auth-mode key
-az storage file upload --account-name "$STORAGE_ACCOUNT" --share-name "$FILE_SHARE" --source sample3.txt --path sample3.txt --auth-mode key
+ACCOUNT_KEY=$(az storage account keys list \
+  --resource-group "$RESOURCE_GROUP" \
+  --account-name "$STORAGE_ACCOUNT" \
+  --query "[0].value" -o tsv)
+
+az storage file upload --account-name "$STORAGE_ACCOUNT" --share-name "$FILE_SHARE" --source sample1.txt --account-key "$ACCOUNT_KEY"
+az storage file upload --account-name "$STORAGE_ACCOUNT" --share-name "$FILE_SHARE" --source sample2.txt --account-key "$ACCOUNT_KEY"
+az storage file upload --account-name "$STORAGE_ACCOUNT" --share-name "$FILE_SHARE" --source sample3.txt --account-key "$ACCOUNT_KEY"
 
 rm -f sample1.txt sample2.txt sample3.txt
 echo "✅ Sample text files uploaded to Azure Files."

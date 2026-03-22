@@ -40,15 +40,26 @@ FFMPEG_ARCHIVE="ffmpeg-static.tar.xz"
 curl -L -o "$FFMPEG_ARCHIVE" "$FFMPEG_URL"
 
 echo "📦 Extracting ffmpeg binary..."
-tar -xf "$FFMPEG_ARCHIVE" --strip-components=1 "*/ffmpeg"
+tar --wildcards -xf "$FFMPEG_ARCHIVE" --strip-components=1 "*/ffmpeg"
 
 echo "⬆️  Uploading ffmpeg to Azure Files share..."
-az storage file upload \
+ACCOUNT_KEY=$(az storage account keys list \
+  --resource-group "$RESOURCE_GROUP" \
   --account-name "$STORAGE_ACCOUNT" \
-  --share-name "$FILE_SHARE" \
-  --source ./ffmpeg \
-  --path ffmpeg \
-  --auth-mode key
+  --query "[0].value" -o tsv)
+
+export AZURE_STORAGE_CONNECTION_TIMEOUT=300
+for attempt in 1 2 3; do
+    az storage file upload \
+      --account-name "$STORAGE_ACCOUNT" \
+      --share-name "$FILE_SHARE" \
+      --source ./ffmpeg \
+      --account-key "$ACCOUNT_KEY" \
+      --timeout 300 && break
+    echo "   Upload attempt $attempt failed, retrying in 10 seconds..."
+    sleep 10
+done
+unset AZURE_STORAGE_CONNECTION_TIMEOUT
 
 rm -f "$FFMPEG_ARCHIVE" ffmpeg
 echo "✅ ffmpeg uploaded to Azure Files."
@@ -111,20 +122,40 @@ WEBHOOK_ENDPOINT="${FUNCTION_APP_URL}/runtime/webhooks/blobs?functionName=Host.F
 
 SUBSCRIPTION_NAME="blob-created-subscription"
 
-# Create (or update) the EventGrid subscription
-echo "📡 Creating EventGrid subscription: $SUBSCRIPTION_NAME..."
-az eventgrid system-topic event-subscription create \
-  --name "$SUBSCRIPTION_NAME" \
-  --system-topic-name "$EVENTGRID_TOPIC_NAME" \
-  --resource-group "$RESOURCE_GROUP" \
-  --endpoint-type webhook \
-  --endpoint "$WEBHOOK_ENDPOINT" \
-  --included-event-types "Microsoft.Storage.BlobCreated" \
-  --subject-begins-with "/blobServices/default/containers/images-input/" \
-  --event-delivery-schema eventgridschema \
-  --output none
+# Wait for function host to be ready before creating EventGrid subscription
+echo "   Waiting for function host to be ready..."
+for i in $(seq 1 6); do
+    HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${FUNCTION_APP_URL}/admin/host/status?code=${BLOBS_KEY}" || echo "000")
+    if [ "$HTTP_STATUS" = "200" ]; then
+        echo "   ✅ Function host is ready."
+        break
+    fi
+    echo "   Host not ready yet (attempt $i/6), waiting 15 seconds..."
+    sleep 15
+done
 
-echo "✅ EventGrid subscription created."
+# Create (or update) the EventGrid subscription with retry
+echo "📡 Creating EventGrid subscription: $SUBSCRIPTION_NAME..."
+SUBSCRIPTION_CREATED=false
+for attempt in 1 2 3; do
+    MSYS_NO_PATHCONV=1 az eventgrid system-topic event-subscription create \
+      --name "$SUBSCRIPTION_NAME" \
+      --system-topic-name "$EVENTGRID_TOPIC_NAME" \
+      --resource-group "$RESOURCE_GROUP" \
+      --endpoint-type webhook \
+      --endpoint "$WEBHOOK_ENDPOINT" \
+      --included-event-types "Microsoft.Storage.BlobCreated" \
+      --subject-begins-with "/blobServices/default/containers/images-input/" \
+      --event-delivery-schema eventgridschema \
+      --output none && { SUBSCRIPTION_CREATED=true; break; }
+    echo "   Webhook validation failed (attempt $attempt/3), retrying in 20 seconds..."
+    sleep 20
+done
+if [ "$SUBSCRIPTION_CREATED" = true ]; then
+    echo "✅ EventGrid subscription created."
+else
+    echo "⚠️  WARNING: EventGrid subscription creation failed. You may need to create it manually after the function host is fully warmed up."
+fi
 echo ""
 
 # ---------------------------------------------------------------------------
