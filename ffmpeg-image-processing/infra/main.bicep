@@ -21,6 +21,7 @@ param appServicePlanName string = ''
 param logAnalyticsName string = ''
 param resourceGroupName string = ''
 param storageAccountName string = ''
+param keyVaultName string = ''
 param eventGridTopicName string = ''  // Used by eventGridTopic module; kept for override flexibility
 
 // Function app configuration
@@ -191,13 +192,34 @@ module functionAppRoleAssignments './app/rbac.bicep' = {
   }
 }
 
-// Azure Files mount configuration
+// Key Vault for secure storage of Azure Files access key
+module keyVault './app/keyvault.bicep' = {
+  name: 'keyVault'
+  scope: rg
+  params: {
+    name: !empty(keyVaultName) ? keyVaultName : '${abbrs.keyVaultVaults}${resourceToken}'
+    location: location
+    tags: tags
+    storageAccountName: storage.outputs.name
+    functionAppPrincipalId: processorIdentity.outputs.principalId
+    deployerPrincipalId: principalId
+  }
+}
+
+// Reference vault to pass secrets to downstream modules
+resource keyVaultRef 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
+  name: keyVault.outputs.name
+  scope: rg
+}
+
+// Azure Files mount configuration (access key retrieved from Key Vault)
 module azureFilesMount './app/mounts.bicep' = {
   name: 'azureFilesMount'
   scope: rg
   params: {
     functionAppName: functionApp.outputs.name
     storageAccountName: storage.outputs.name
+    accessKey: keyVaultRef.getSecret('storageAccountKey')
     mounts: [
       {
         name: 'tools'
