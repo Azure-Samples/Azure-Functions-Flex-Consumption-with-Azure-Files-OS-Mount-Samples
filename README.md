@@ -25,16 +25,7 @@ Each sample is an [Azure Developer CLI (azd)](https://learn.microsoft.com/azure/
    git clone https://github.com/Azure-Samples/Azure-Functions-Flex-Consumption-with-Azure-Files-OS-Mount-Samples.git
    ```
 
-2. Navigate to a sample folder and deploy:
-
-   ```bash
-   cd Azure-Functions-Flex-Consumption-with-Azure-Files-OS-Mount-Samples/ffmpeg-image-processing
-   azd init
-   azd auth login
-   azd up
-   ```
-
-   See each sample's README for details.
+2. Navigate to a sample folder and follow the instructions in its README.
 
 ## Why OS mounts?
 
@@ -61,14 +52,6 @@ Step-by-step tutorials for these samples are available on Microsoft Learn:
 
 - [Tutorial: Process images by using FFmpeg on a mounted Azure Files share](https://learn.microsoft.com/azure/azure-functions/tutorial-ffmpeg-processing-azure-files)
 - [Tutorial: Durable text analysis with a mounted Azure Files share](https://learn.microsoft.com/azure/azure-functions/durable/tutorial-durable-text-analysis-azure-files)
-
-## Clean up
-
-To delete all resources created by a sample:
-
-```bash
-azd down --purge
-```
 
 ## Related documentation
 

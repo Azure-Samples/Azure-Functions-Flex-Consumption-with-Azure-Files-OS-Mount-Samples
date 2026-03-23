@@ -32,16 +32,25 @@ A Durable Functions fan-out/fan-in orchestration that analyzes text files stored
 
 - [Azure Developer CLI (azd)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd) version 1.9.0 or later
 - [Git](https://git-scm.com/)
+- [jq](https://jqlang.org/) (for formatting JSON responses)
 - An Azure subscription
 
 ## Deploy
 
-```bash
-cd durable-text-analysis
-azd init
-azd auth login
-azd up
-```
+1. Clone the repository:
+
+   ```bash
+   git clone https://github.com/Azure-Samples/Azure-Functions-Flex-Consumption-with-Azure-Files-OS-Mount-Samples.git
+   ```
+
+2. Navigate to this sample and deploy:
+
+   ```bash
+   cd Azure-Functions-Flex-Consumption-with-Azure-Files-OS-Mount-Samples/durable-text-analysis
+   azd init
+   azd auth login
+   azd up
+   ```
 
 `azd up` provisions all Azure resources, deploys the function code, and runs a post-deployment script that:
 
@@ -64,13 +73,13 @@ azd up
 
    ```bash
    FUNC_URL=$(azd env get-value AZURE_FUNCTION_APP_URL)
-   curl -s -X POST "${FUNC_URL}/api/start-analysis?code=${FUNC_KEY}" | python -m json.tool
+   curl -s -X POST "${FUNC_URL}/api/start-analysis?code=${FUNC_KEY}" | jq .
    ```
 
 3. Poll for results using the `statusQueryGetUri` from the response:
 
    ```bash
-   curl -s "<statusQueryGetUri-from-response>" | python -m json.tool
+   curl -s "<statusQueryGetUri-from-response>" | jq .
    ```
 
    When the orchestration completes, the `output` field contains the aggregated analysis results from all text files.
@@ -114,6 +123,9 @@ durable-text-analysis/
 | Orchestration returns empty results | No text files on mount | Re-run `azd up` to upload sample files, or upload your own `.txt` files to the Azure Files share |
 | `401 Unauthorized` | Missing function key | Include `?code=<function-key>` in the request URL |
 | Polling returns `Running` indefinitely | Activity function errors | Check Application Insights logs for exceptions |
+
+> [!IMPORTANT]
+> **Security note:** This sample uses `allowSharedKeyAccess` on the storage account because Azure Files SMB mounts don't yet support managed identity. The storage account key is stored in Azure Key Vault and referenced during deployment. For production, add network isolation: use **VNet integration** for the function app and restrict storage access with **Private Endpoints** (recommended) or **Service Endpoints**. Disable public network access on the storage account when using Private Endpoints. See [Configure networking for Azure Functions](https://learn.microsoft.com/azure/azure-functions/configure-networking-how-to) for details.
 
 ## Clean up
 

@@ -38,12 +38,20 @@ Event-driven image processing using FFmpeg on an Azure Files OS mount in a Flex 
 
 ## Deploy
 
-```bash
-cd ffmpeg-image-processing
-azd init
-azd auth login
-azd up
-```
+1. Clone the repository:
+
+   ```bash
+   git clone https://github.com/Azure-Samples/Azure-Functions-Flex-Consumption-with-Azure-Files-OS-Mount-Samples.git
+   ```
+
+2. Navigate to this sample and deploy:
+
+   ```bash
+   cd Azure-Functions-Flex-Consumption-with-Azure-Files-OS-Mount-Samples/ffmpeg-image-processing
+   azd init
+   azd auth login
+   azd up
+   ```
 
 `azd up` provisions all Azure resources, deploys the function code, and runs a post-deployment script that:
 
@@ -123,6 +131,9 @@ ffmpeg-image-processing/
 | Images not processed | FFmpeg not on mount | Check `curl $FUNCTION_APP_URL/api/health` — if `ffmpeg_available` is `false`, re-run `azd up` |
 | Images not processed | EventGrid subscription missing | Run `az eventgrid system-topic event-subscription list --system-topic-name <topic> -g <rg>` to verify |
 | Slow first execution | Cold start + RBAC propagation | Wait 1-2 minutes after deployment for role assignments to propagate |
+
+> [!IMPORTANT]
+> **Security note:** This sample uses `allowSharedKeyAccess` on the storage account because Azure Files SMB mounts don't yet support managed identity. The storage account key is stored in Azure Key Vault and referenced during deployment. For production, add network isolation: use **VNet integration** for the function app and restrict storage access with **Private Endpoints** (recommended) or **Service Endpoints**. Disable public network access on the storage account when using Private Endpoints. See [Configure networking for Azure Functions](https://learn.microsoft.com/azure/azure-functions/configure-networking-how-to) for details.
 
 ## Customization
 
