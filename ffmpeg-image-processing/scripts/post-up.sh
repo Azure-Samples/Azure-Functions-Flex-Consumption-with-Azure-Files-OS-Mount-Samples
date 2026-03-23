@@ -40,7 +40,12 @@ FFMPEG_ARCHIVE="ffmpeg-static.tar.xz"
 curl -L -o "$FFMPEG_ARCHIVE" "$FFMPEG_URL"
 
 echo "📦 Extracting ffmpeg binary..."
-tar --wildcards -xf "$FFMPEG_ARCHIVE" --strip-components=1 "*/ffmpeg"
+# GNU tar uses --wildcards; BSD tar (macOS) supports globs natively
+if tar --version 2>/dev/null | grep -q 'GNU'; then
+    tar --wildcards -xf "$FFMPEG_ARCHIVE" --strip-components=1 "*/ffmpeg"
+else
+    tar -xf "$FFMPEG_ARCHIVE" --strip-components=1 "*/ffmpeg"
+fi
 
 echo "⬆️  Uploading ffmpeg to Azure Files share..."
 ACCOUNT_KEY=$(az storage account keys list \

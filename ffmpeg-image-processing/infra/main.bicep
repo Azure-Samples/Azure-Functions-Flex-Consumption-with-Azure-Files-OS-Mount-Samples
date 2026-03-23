@@ -174,6 +174,7 @@ module functionApp './app/function.bicep' = {
     appSettings: {
       FFMPEG_PATH: '/mounts/tools/ffmpeg'
       OUTPUT_CONTAINER: 'images-output'
+      MOUNT_SECRET_REFERENCE: '@Microsoft.KeyVault(SecretUri=${keyVault.outputs.storageKeySecretUri})'
     }
   }
 }
@@ -206,20 +207,14 @@ module keyVault './app/keyvault.bicep' = {
   }
 }
 
-// Reference vault to pass secrets to downstream modules
-resource keyVaultRef 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
-  name: keyVault.outputs.name
-  scope: rg
-}
-
-// Azure Files mount configuration (access key retrieved from Key Vault)
+// Azure Files mount configuration (access key resolved via Key Vault reference)
 module azureFilesMount './app/mounts.bicep' = {
   name: 'azureFilesMount'
   scope: rg
   params: {
     functionAppName: functionApp.outputs.name
     storageAccountName: storage.outputs.name
-    accessKey: keyVaultRef.getSecret('storageAccountKey')
+    accessKey: '@AppSettingRef(MOUNT_SECRET_REFERENCE)'
     mounts: [
       {
         name: 'tools'

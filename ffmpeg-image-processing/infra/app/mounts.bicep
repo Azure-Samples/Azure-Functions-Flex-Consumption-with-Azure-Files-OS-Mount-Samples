@@ -4,8 +4,7 @@ param functionAppName string
 @description('Storage account name')
 param storageAccountName string
 
-@secure()
-@description('Storage account access key for Azure Files SMB mount (retrieved from Key Vault)')
+@description('Storage account access key or app setting reference for Azure Files SMB mount')
 param accessKey string
 
 @description('Array of mount configurations')
