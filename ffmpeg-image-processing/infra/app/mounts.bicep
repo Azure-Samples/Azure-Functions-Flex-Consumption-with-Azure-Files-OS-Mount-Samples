@@ -4,6 +4,9 @@ param functionAppName string
 @description('Storage account name')
 param storageAccountName string
 
+@description('Storage account access key or app setting reference for Azure Files SMB mount')
+param accessKey string
+
 @description('Array of mount configurations')
 param mounts array
 
@@ -11,14 +14,6 @@ param mounts array
 resource functionApp 'Microsoft.Web/sites@2023-12-01' existing = {
   name: functionAppName
 }
-
-// Storage account reference
-resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' existing = {
-  name: storageAccountName
-}
-
-// Get storage account key for Azure Files SMB mount
-var storageAccountKey = storage.listKeys().keys[0].value
 
 // Azure Files OS mount configuration
 // Deploys azureStorageAccounts site config with all mounts in one shot
@@ -31,7 +26,7 @@ resource mountConfig 'Microsoft.Web/sites/config@2023-12-01' = {
       shareName: mount.shareName
       mountPath: mount.mountPath
       accountName: storageAccountName
-      accessKey: storageAccountKey
+      accessKey: accessKey
     }
   }))
 }

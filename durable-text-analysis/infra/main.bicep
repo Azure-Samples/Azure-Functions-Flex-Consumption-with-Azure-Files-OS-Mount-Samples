@@ -21,6 +21,7 @@ param appServicePlanName string = ''
 param logAnalyticsName string = ''
 param resourceGroupName string = ''
 param storageAccountName string = ''
+param keyVaultName string = ''
 
 // Function app configuration
 param instanceMemoryMB int = 2048
@@ -151,6 +152,7 @@ module functionApp './app/function.bicep' = {
     maximumInstanceCount: maximumInstanceCount
     appSettings: {
       MOUNT_PATH: '/mounts/data/'
+      MOUNT_SECRET_REFERENCE: '@Microsoft.KeyVault(SecretUri=${keyVault.outputs.storageKeySecretUri})'
     }
   }
 }
@@ -169,13 +171,28 @@ module functionAppRoleAssignments './app/rbac.bicep' = {
   }
 }
 
-// Azure Files mount configuration
+// Key Vault for secure storage of Azure Files access key
+module keyVault './app/keyvault.bicep' = {
+  name: 'keyVault'
+  scope: rg
+  params: {
+    name: !empty(keyVaultName) ? keyVaultName : '${abbrs.keyVaultVaults}${resourceToken}'
+    location: location
+    tags: tags
+    storageAccountName: storage.outputs.name
+    functionAppPrincipalId: processorIdentity.outputs.principalId
+    deployerPrincipalId: principalId
+  }
+}
+
+// Azure Files mount configuration (access key resolved via Key Vault reference)
 module azureFilesMount './app/mounts.bicep' = {
   name: 'azureFilesMount'
   scope: rg
   params: {
     functionAppName: functionApp.outputs.name
     storageAccountName: storage.outputs.name
+    accessKey: '@AppSettingRef(MOUNT_SECRET_REFERENCE)'
     mounts: [
       {
         name: 'data'

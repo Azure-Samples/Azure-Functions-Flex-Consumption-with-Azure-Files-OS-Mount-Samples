@@ -21,6 +21,7 @@ param appServicePlanName string = ''
 param logAnalyticsName string = ''
 param resourceGroupName string = ''
 param storageAccountName string = ''
+param keyVaultName string = ''
 param eventGridTopicName string = ''  // Used by eventGridTopic module; kept for override flexibility
 
 // Function app configuration
@@ -173,6 +174,7 @@ module functionApp './app/function.bicep' = {
     appSettings: {
       FFMPEG_PATH: '/mounts/tools/ffmpeg'
       OUTPUT_CONTAINER: 'images-output'
+      MOUNT_SECRET_REFERENCE: '@Microsoft.KeyVault(SecretUri=${keyVault.outputs.storageKeySecretUri})'
     }
   }
 }
@@ -191,13 +193,28 @@ module functionAppRoleAssignments './app/rbac.bicep' = {
   }
 }
 
-// Azure Files mount configuration
+// Key Vault for secure storage of Azure Files access key
+module keyVault './app/keyvault.bicep' = {
+  name: 'keyVault'
+  scope: rg
+  params: {
+    name: !empty(keyVaultName) ? keyVaultName : '${abbrs.keyVaultVaults}${resourceToken}'
+    location: location
+    tags: tags
+    storageAccountName: storage.outputs.name
+    functionAppPrincipalId: processorIdentity.outputs.principalId
+    deployerPrincipalId: principalId
+  }
+}
+
+// Azure Files mount configuration (access key resolved via Key Vault reference)
 module azureFilesMount './app/mounts.bicep' = {
   name: 'azureFilesMount'
   scope: rg
   params: {
     functionAppName: functionApp.outputs.name
     storageAccountName: storage.outputs.name
+    accessKey: '@AppSettingRef(MOUNT_SECRET_REFERENCE)'
     mounts: [
       {
         name: 'tools'

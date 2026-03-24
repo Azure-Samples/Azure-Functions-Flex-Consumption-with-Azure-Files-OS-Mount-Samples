@@ -213,6 +213,15 @@ node_modules/
 *.swp
 .DS_Store
 
+# azd environment state
+.azure/
+
+# Post-deploy script artifacts
+ffmpeg
+ffmpeg-extract/
+ffmpeg-static.tar.xz
+sample*.txt
+
 # Squad / Copilot tooling
 .squad/
 .copilot/

@@ -88,6 +88,7 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
   }
   properties: {
     serverFarmId: appServicePlanId
+    keyVaultReferenceIdentity: identityType == 'UserAssigned' ? identityId : null
     functionAppConfig: {
       deployment: {
         storage: {

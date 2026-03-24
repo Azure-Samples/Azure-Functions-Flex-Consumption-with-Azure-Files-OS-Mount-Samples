@@ -18,191 +18,128 @@ languages:
 
 # Durable Text Analysis Sample
 
-This sample demonstrates a Durable Functions fan-out/fan-in orchestration that processes text files stored on an Azure Files OS mount in a Flex Consumption Function App. An HTTP trigger starts the orchestration, which fans out to analyze each text file in parallel and aggregates the results.
+A Durable Functions fan-out/fan-in orchestration that analyzes text files stored on an Azure Files OS mount in a Flex Consumption function app. An HTTP trigger starts the orchestration, which fans out to analyze each text file in parallel and aggregates the results.
 
 ## Architecture
 
-- **Azure Functions (Flex Consumption)**: Serverless compute with dynamic scaling
-- **Durable Functions**: Stateful orchestration with fan-out/fan-in pattern
-- **Azure Files**: SMB file share mounted at `/mounts/data/` containing text files
-- **Application Insights**: Monitoring and telemetry
-- **Azure Verified Modules**: Infrastructure as Code using AVM Bicep modules
-
-## Features
-
-- HTTP-triggered starter function that initiates orchestration
-- Durable orchestrator that lists all text files on the Azure Files mount
-- Parallel activity functions that analyze each file (word count, summaries)
-- Aggregated results from all analyses
-- Built-in status query endpoint to poll orchestration progress
-- RBAC-based authentication (no connection strings)
+- **Azure Functions (Flex Consumption)** — Serverless compute with OS-level mount support
+- **Durable Functions** — Stateful orchestration with fan-out/fan-in pattern
+- **Azure Files** — SMB share mounted at `/mounts/data/` containing text files
+- **Application Insights** — Monitoring and telemetry
+- **Managed identity** — RBAC-based access (no connection strings)
 
 ## Prerequisites
 
-- [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli)
-- [Azure Developer CLI (azd)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd)
-- [Python 3.11](https://www.python.org/downloads/)
+- [Azure Developer CLI (azd)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd) version 1.9.0 or later
+- [Git](https://git-scm.com/)
+- [jq](https://jqlang.org/) (for formatting JSON responses)
 - An Azure subscription
 
-## Quick Start
+## Deploy
 
-1. **Clone the repository and navigate to this sample**:
+1. Clone the repository:
+
    ```bash
-   cd durable-text-analysis
+   git clone https://github.com/Azure-Samples/Azure-Functions-Flex-Consumption-with-Azure-Files-OS-Mount-Samples.git
    ```
 
-2. **Authenticate with Azure**:
+2. Navigate to this sample and deploy:
+
    ```bash
+   cd Azure-Functions-Flex-Consumption-with-Azure-Files-OS-Mount-Samples/durable-text-analysis
+   azd init
    azd auth login
-   ```
-
-3. **Deploy the infrastructure and application**:
-   ```bash
    azd up
    ```
 
-   This will:
-   - Provision all Azure resources (Function App, Storage Account, Azure Files share, etc.)
-   - Deploy the Python function code
-   - Run the post-deploy hook (`scripts/post-up.sh`) which:
-     - Uploads sample text files to the Azure Files share
-     - Runs a health check to verify the function app is ready
+`azd up` provisions all Azure resources, deploys the function code, and runs a post-deployment script that:
 
-   > [!NOTE]
-   > The post-deploy hook uploads sample `.txt` files to the `data` Azure Files share so that the orchestration has files to analyze on first run.
+1. Uploads sample text files to the Azure Files share
+2. Runs a health check
 
-4. **Get your function key**:
+## Test
+
+1. Get your function key:
+
    ```bash
    FUNCTION_APP_NAME=$(azd env get-value AZURE_FUNCTION_APP_NAME)
    RESOURCE_GROUP=$(azd env get-value AZURE_RESOURCE_GROUP)
-   az functionapp keys list -n $FUNCTION_APP_NAME -g $RESOURCE_GROUP --query "functionKeys.default" -o tsv
+   FUNC_KEY=$(az functionapp keys list \
+     -n "$FUNCTION_APP_NAME" -g "$RESOURCE_GROUP" \
+     --query "functionKeys.default" -o tsv)
    ```
 
-5. **Start the orchestration**:
+2. Start the orchestration:
+
    ```bash
    FUNC_URL=$(azd env get-value AZURE_FUNCTION_APP_URL)
-   FUNC_KEY=<paste-function-key-here>
    curl -s -X POST "${FUNC_URL}/api/start-analysis?code=${FUNC_KEY}" | jq .
    ```
 
-6. **Poll for results**:
-   Use the `statusQueryGetUri` from the response to monitor progress. The orchestration typically completes within a few seconds for sample files:
+3. Poll for results using the `statusQueryGetUri` from the response:
+
    ```bash
-   # Use the statusQueryGetUri URL from the response (it already includes the function key)
    curl -s "<statusQueryGetUri-from-response>" | jq .
    ```
-   When `runtimeStatus` is `"Completed"`, the `output` field contains the aggregated analysis results.
 
-## How It Works
+   When the orchestration completes, the `output` field contains the aggregated analysis results from all text files.
 
-1. You send a POST request to `/api/start-analysis?code=<key>`
-2. The HTTP starter function creates a new Durable Functions orchestration instance
-3. The orchestrator calls the `list_files` activity, which reads the Azure Files mount at `/mounts/data/` and returns all `.txt` file paths
-4. The orchestrator **fans out** — it calls `analyze_text` for each file in parallel
-5. Each `analyze_text` activity reads the file from the mount, counts words, and produces a per-file summary
-6. The orchestrator **fans in** — it waits for all activities to complete, then calls `aggregate_results` to combine them
-7. The aggregated result (total word count, per-file summaries) is returned as the orchestration output
-8. You poll the built-in `statusQueryGetUri` endpoint until `runtimeStatus` is `"Completed"`
+## How it works
 
-> [!IMPORTANT]
-> The Durable Functions response uses the `id` field (not `instance_id`). Use the `statusQueryGetUri` URL from the response — it's the most reliable polling method and includes the function key.
+1. An HTTP POST to `/api/start-analysis` starts the Durable Functions orchestration.
+2. The orchestrator lists all `.txt` files on the `/mounts/data/` mount.
+3. It fans out, calling an activity function for each file in parallel.
+4. Each activity reads a text file from the mount and returns analysis results (word count, character count, etc.).
+5. The orchestrator aggregates results and returns the combined output.
 
-## File Structure
+## File structure
 
 ```
 durable-text-analysis/
-├── azure.yaml              # azd configuration (postdeploy hook)
-├── README.md               # This file
+├── azure.yaml                    # azd template config (dual-platform postdeploy hooks)
 ├── src/
-│   ├── function_app.py     # HTTP starter + status endpoint, app registration
-│   ├── orchestrator.py     # Durable orchestration logic (fan-out/fan-in)
-│   ├── activities.py       # Activity functions (list_files, analyze_text, aggregate_results)
-│   ├── requirements.txt    # Python dependencies
-│   └── host.json           # Function host configuration
+│   ├── function_app.py           # HTTP starter + health endpoint
+│   ├── orchestrator.py           # Durable orchestrator (fan-out/fan-in)
+│   ├── activities.py             # Activity functions (text analysis)
+│   ├── requirements.txt          # Python dependencies
+│   └── host.json                 # Function host configuration
 ├── infra/
-│   ├── main.bicep          # Main infrastructure template
-│   ├── abbreviations.json  # Azure naming conventions
+│   ├── main.bicep                # Main infrastructure template (subscription scope)
+│   ├── main.parameters.json      # azd parameter mapping
+│   ├── abbreviations.json        # Azure naming conventions
 │   └── app/
-│       ├── function.bicep  # Function app (direct Microsoft.Web/sites, Flex Consumption)
-│       ├── rbac.bicep      # Role assignments
-│       └── mounts.bicep    # Azure Files mount config
+│       ├── function.bicep        # Function app (Flex Consumption)
+│       ├── rbac.bicep            # Role assignments (managed identity)
+│       └── mounts.bicep          # Azure Files mount configuration
 └── scripts/
-    └── post-up.sh          # Post-deploy: sample file upload + health check
-```
-
-## Testing
-
-After `azd up` completes, test the end-to-end flow:
-
-```bash
-# Get the function URL and key
-FUNC_URL=$(azd env get-value AZURE_FUNCTION_APP_URL)
-FUNCTION_APP_NAME=$(azd env get-value AZURE_FUNCTION_APP_NAME)
-RESOURCE_GROUP=$(azd env get-value AZURE_RESOURCE_GROUP)
-FUNC_KEY=$(az functionapp keys list -n $FUNCTION_APP_NAME -g $RESOURCE_GROUP --query "functionKeys.default" -o tsv)
-
-# Start the orchestration
-curl -s -X POST "${FUNC_URL}/api/start-analysis?code=${FUNC_KEY}" | jq .
-
-# Wait a few seconds, then poll using statusQueryGetUri from the response
-# The output field will contain the aggregated text analysis
-```
-
-You can also verify the function app is reachable:
-
-```bash
-FUNC_URL=$(azd env get-value AZURE_FUNCTION_APP_URL)
-curl -s "$FUNC_URL" -o /dev/null -w "%{http_code}"
+    ├── post-up.sh                # Post-deploy script (Bash)
+    └── post-up.ps1               # Post-deploy script (PowerShell)
 ```
 
 ## Troubleshooting
 
-| Symptom | Likely Cause | Fix |
+| Symptom | Likely cause | Fix |
 |---------|-------------|-----|
-| `401 Unauthorized` on POST | Missing or wrong function key | Get the key: `az functionapp keys list -n {app} -g {rg} --query "functionKeys.default" -o tsv` and pass it as `?code=<key>` |
-| Orchestration returns empty results | No text files on mount | Re-run `./scripts/post-up.sh` to upload sample files, or verify files exist: `az storage file list --account-name {storage} --share-name data --auth-mode key -o table` |
-| `runtimeStatus` stuck on `"Running"` | Activity failure | Check Application Insights for exceptions. Common cause: mount not attached yet (RBAC propagation takes 1–2 minutes) |
-| `allowSharedKeyAccess` deployment error | Enterprise policy blocks key-based auth | For production, prefer network isolation over policy skips: use VNet integration for the Function App and restrict storage access using Private Endpoints (recommended) or Service Endpoints for Azure Files/Storage. Keep RBAC/managed identity and disable public access where possible. |
-| Function app returns 404 | Code not deployed | Run `azd deploy` to push the function code. The function host needs to start before endpoints are available. |
-
-## Production Hardening (Recommended)
-
-For production deployments, treat this sample as a starting point and add network isolation:
-
-1. **Add VNet integration for the Function App** so outbound access is routed through your virtual network.
-2. **Secure the storage account used for Azure Files**:
-   - Prefer **Private Endpoints** for `file` (and `blob` when used by your app).
-   - Alternatively, use **Service Endpoints** with storage firewall rules.
-3. **Disable public network access** on the storage account when using Private Endpoints.
-4. **Use private DNS zones** for Private Endpoints so `*.file.core.windows.net` and `*.blob.core.windows.net` resolve privately.
-5. **Keep identity-based access (RBAC/managed identity)** and avoid Shared Key access in production.
+| Orchestration returns empty results | No text files on mount | Re-run `azd up` to upload sample files, or upload your own `.txt` files to the Azure Files share |
+| `401 Unauthorized` | Missing function key | Include `?code=<function-key>` in the request URL |
+| Polling returns `Running` indefinitely | Activity function errors | Check Application Insights logs for exceptions |
 
 > [!IMPORTANT]
-> Private Endpoints are the recommended production pattern for Azure Files. Service Endpoints can work, but they provide less isolation than Private Link.
+> **Security note:** This sample uses `allowSharedKeyAccess` on the storage account because Azure Files SMB mounts don't yet support managed identity. The storage account key is stored in Azure Key Vault and referenced during deployment. For production, add network isolation: use **VNet integration** for the function app and restrict storage access with **Private Endpoints** (recommended) or **Service Endpoints**. Disable public network access on the storage account when using Private Endpoints. See [Configure networking for Azure Functions](https://learn.microsoft.com/azure/azure-functions/configure-networking-how-to) for details.
 
-## Customization
-
-You can modify the analysis logic in `src/activities.py` to:
-- Add sentiment analysis or keyword extraction
-- Process different file formats (CSV, JSON)
-- Integrate with Azure AI services for richer analysis
-- Change the mount path via the `MOUNT_PATH` app setting
-
-## Documentation
-
-For more details on Azure Files integration with Flex Consumption, see the [main documentation](../docs/).
-
-## Clean Up
-
-To delete all resources:
+## Clean up
 
 ```bash
-azd down
+azd down --purge
 ```
 
-## Learn More
+## Tutorial
 
-- [Azure Functions Flex Consumption](https://learn.microsoft.com/azure/azure-functions/flex-consumption-plan)
-- [Durable Functions](https://learn.microsoft.com/azure/azure-functions/durable/)
-- [Azure Files](https://learn.microsoft.com/azure/storage/files/)
-- [Azure Verified Modules](https://aka.ms/avm)
+For a step-by-step walkthrough, see [Tutorial: Durable text analysis with a mounted Azure Files share](https://learn.microsoft.com/azure/azure-functions/durable/tutorial-durable-text-analysis-azure-files).
+
+## Learn more
+
+- [Azure Functions Flex Consumption plan](https://learn.microsoft.com/azure/azure-functions/flex-consumption-plan)
+- [Durable Functions overview](https://learn.microsoft.com/azure/azure-functions/durable/durable-functions-overview)
+- [Choose a file access strategy for Azure Functions](https://learn.microsoft.com/azure/azure-functions/concept-file-access-options)
+- [Azure Files documentation](https://learn.microsoft.com/azure/storage/files/)

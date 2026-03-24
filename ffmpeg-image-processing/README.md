@@ -1,7 +1,7 @@
 <!--
 ---
 name: FFmpeg image processing with Azure Functions Flex Consumption and Azure Files
-description: Python event-driven image processing sample that uses FFmpeg from an Azure Files OS mount in Azure Functions Flex Consumption, with Blob Storage triggers and azd/Bicep deployment.
+description: Python event-driven image processing sample that uses FFmpeg from an Azure Files OS mount in Azure Functions Flex Consumption, with EventGrid blob triggers and azd/Bicep deployment.
 page_type: sample
 products:
 - azure-functions
@@ -19,191 +19,139 @@ languages:
 
 # FFmpeg Image Processing Sample
 
-This sample demonstrates event-driven image processing using FFmpeg on an Azure Files OS mount in a Flex Consumption Function App. Images uploaded to Blob Storage trigger the function via EventGrid, which processes them using FFmpeg tools mounted from Azure Files.
+Event-driven image processing using FFmpeg on an Azure Files OS mount in a Flex Consumption function app. Images uploaded to Blob Storage trigger the function via EventGrid, which processes them using FFmpeg from the mount and saves the result to an output container.
 
 ## Architecture
 
-- **Azure Functions (Flex Consumption)**: Serverless compute with dynamic scaling
-- **EventGrid**: Event-driven triggers for blob storage events
-- **Azure Files**: SMB file share mounted at `/mounts/tools/` containing FFmpeg binary
-- **Blob Storage**: Input and output containers for images
-- **Application Insights**: Monitoring and telemetry
-- **Azure Verified Modules**: Infrastructure as Code using AVM Bicep modules
-
-## Features
-
-- EventGrid-triggered blob trigger that processes images automatically
-- FFmpeg binary stored on Azure Files OS mount
-- Resize and convert images using FFmpeg
-- Output images saved to a dedicated blob container via blob output binding
-- RBAC-based authentication (no connection strings)
+- **Azure Functions (Flex Consumption)** — Serverless compute with OS-level mount support
+- **Azure Files** — SMB share mounted at `/mounts/tools/` containing the FFmpeg binary
+- **EventGrid** — Blob-created events trigger the function
+- **Blob Storage** — `images-input` and `images-output` containers
+- **Application Insights** — Monitoring and telemetry
+- **Managed identity** — RBAC-based access (no connection strings)
 
 ## Prerequisites
 
-- [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli)
-- [Azure Developer CLI (azd)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd)
-- [Python 3.11](https://www.python.org/downloads/)
+- [Azure Developer CLI (azd)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd) version 1.9.0 or later
+- [Git](https://git-scm.com/)
 - An Azure subscription
 
-## Quick Start
+## Deploy
 
-1. **Clone the repository and navigate to this sample**:
+1. Clone the repository:
+
    ```bash
-   cd ffmpeg-image-processing
+   git clone https://github.com/Azure-Samples/Azure-Functions-Flex-Consumption-with-Azure-Files-OS-Mount-Samples.git
    ```
 
-2. **Authenticate with Azure**:
+2. Navigate to this sample and deploy:
+
    ```bash
+   cd Azure-Functions-Flex-Consumption-with-Azure-Files-OS-Mount-Samples/ffmpeg-image-processing
+   azd init
    azd auth login
-   ```
-
-3. **Deploy the infrastructure and application**:
-   ```bash
    azd up
    ```
 
-   This will:
-   - Provision all Azure resources (Function App, Storage Account, EventGrid system topic, Azure Files, etc.)
-   - Deploy the Python function code
-   - Run the post-deploy hook (`scripts/post-up.sh`) which:
-     - Downloads and uploads the FFmpeg binary to the Azure Files share
-     - Creates the EventGrid subscription pointing to the blob trigger webhook
-     - Runs a health check to verify the function is ready
+`azd up` provisions all Azure resources, deploys the function code, and runs a post-deployment script that:
 
-   > [!NOTE]
-   > The EventGrid subscription is created in the post-deploy hook (not during provisioning) because the blob trigger webhook endpoint requires a `blobs_extension` system key that only exists after the function code is deployed and the host has started.
+1. Downloads and uploads the FFmpeg binary to the Azure Files share
+2. Creates the EventGrid subscription for blob triggers
+3. Runs a health check
 
-4. **Upload a test image**:
-   ```bash
-   STORAGE_ACCOUNT=$(azd env get-value AZURE_STORAGE_ACCOUNT_NAME)
-   az storage blob upload \
-     --account-name $STORAGE_ACCOUNT \
-     --container-name images-input \
-     --name test-image.jpg \
-     --file /path/to/your/image.jpg \
-     --auth-mode login
-   ```
+> [!NOTE]  
+> The Event Grid subscription is created in the post-deploy hook (not during provisioning). The subscription is create after deployment because the blob trigger webhook requires a `blobs_extension` system key, which only exists after the Functions host has successfully started and generated the key.
 
-   The blob trigger fires within a few seconds. Check the `images-output` container for the processed result.
-
-5. **Check the output**:
-   ```bash
-   az storage blob list \
-     --account-name $STORAGE_ACCOUNT \
-     --container-name images-output \
-     --auth-mode login \
-     --output table
-   ```
-
-## How It Works
-
-1. An image is uploaded to the `images-input` blob container
-2. EventGrid detects the `BlobCreated` event and delivers it to the function's blob trigger webhook
-3. The function receives the image bytes via its **blob input binding** (`@app.blob_trigger(source="EventGrid")`)
-4. The function processes the image using FFmpeg from the `/mounts/tools/` mount
-5. The processed image is returned via the **blob output binding**, which writes it to the `images-output` container
-
-No manual blob download or upload happens in the function code — the Azure Functions runtime handles I/O through the bindings.
-
-## File Structure
-
-```
-ffmpeg-image-processing/
-├── azure.yaml              # azd configuration (postdeploy hook)
-├── README.md               # This file
-├── src/
-│   ├── function_app.py     # Blob trigger + output binding, health endpoint
-│   ├── process_image.py    # Image processing logic with FFmpeg
-│   ├── requirements.txt    # Python dependencies
-│   └── host.json           # Function host configuration
-├── infra/
-│   ├── main.bicep          # Main infrastructure template
-│   ├── abbreviations.json  # Azure naming conventions
-│   └── app/
-│       ├── function.bicep  # Function app module (Flex Consumption)
-│       ├── rbac.bicep      # Role assignments
-│       └── mounts.bicep    # Azure Files mount config
-└── scripts/
-    └── post-up.sh          # Post-deploy: ffmpeg upload + EventGrid subscription + health check
-```
-
-## Testing
-
-After `azd up` completes, test the end-to-end flow:
+## Test
 
 ```bash
-# Upload any JPEG/PNG image
 STORAGE_ACCOUNT=$(azd env get-value AZURE_STORAGE_ACCOUNT_NAME)
-az storage blob upload \
-  --account-name $STORAGE_ACCOUNT \
-  --container-name images-input \
-  --name sample.jpg \
-  --file ./sample.jpg \
-  --auth-mode login
 
-# Wait a few seconds, then check the output container
+az storage blob upload \
+  --account-name "$STORAGE_ACCOUNT" \
+  --container-name images-input \
+  --name sample_image.jpg \
+  --file sample_image.jpg \
+  --auth-mode login
+```
+
+Wait a few seconds, then check the output container:
+
+```bash
 az storage blob list \
-  --account-name $STORAGE_ACCOUNT \
+  --account-name "$STORAGE_ACCOUNT" \
   --container-name images-output \
   --auth-mode login \
   --output table
 ```
 
-The blob trigger fires within a few seconds of upload. You can also verify the function is healthy:
+Verify the function is healthy:
 
 ```bash
 FUNCTION_APP_URL=$(azd env get-value AZURE_FUNCTION_APP_URL)
 curl "$FUNCTION_APP_URL/api/health"
 ```
 
+## How it works
+
+1. An image is uploaded to the `images-input` blob container.
+2. EventGrid detects the `BlobCreated` event and delivers it to the function's blob trigger webhook.
+3. The function reads the image via the blob input binding.
+4. FFmpeg (at `/mounts/tools/ffmpeg`) resizes and converts the image.
+5. The processed image is written to `images-output` via the blob output binding.
+
+## File structure
+
+```
+ffmpeg-image-processing/
+├── azure.yaml                    # azd template config (dual-platform postdeploy hooks)
+├── sample_image.jpg              # Sample image for testing
+├── src/
+│   ├── function_app.py           # Blob trigger + output binding, health endpoint
+│   ├── process_image.py          # FFmpeg image processing logic
+│   ├── requirements.txt          # Python dependencies
+│   └── host.json                 # Function host configuration
+├── infra/
+│   ├── main.bicep                # Main infrastructure template (subscription scope)
+│   ├── main.parameters.json      # azd parameter mapping
+│   ├── abbreviations.json        # Azure naming conventions
+│   └── app/
+│       ├── function.bicep        # Function app (Flex Consumption)
+│       ├── rbac.bicep            # Role assignments (managed identity)
+│       └── mounts.bicep          # Azure Files mount configuration
+└── scripts/
+    ├── post-up.sh                # Post-deploy script (Bash)
+    └── post-up.ps1               # Post-deploy script (PowerShell)
+```
+
 ## Troubleshooting
 
-| Symptom | Likely Cause | Fix |
+| Symptom | Likely cause | Fix |
 |---------|-------------|-----|
-| Images not being processed | ffmpeg not on mount | Check `curl https://{app}/api/health` — if `ffmpeg_available` is `false`, re-run `./scripts/post-up.sh` |
-| Images not being processed | EventGrid subscription missing | Run `az eventgrid system-topic event-subscription list --system-topic-name {topic} -g {rg}` to verify the subscription exists |
-| Function triggers after a delay | RBAC propagation | Role assignments can take 1–2 minutes to propagate after deployment. Wait and retry. |
-| `allowSharedKeyAccess` deployment error | Enterprise policy blocks key-based auth | For production, prefer network isolation over policy skips: use VNet integration for the Function App and restrict storage access using Private Endpoints (recommended) or Service Endpoints for Azure Files/Storage. Keep RBAC/managed identity and disable public access where possible. |
-
-## Production Hardening (Recommended)
-
-For production deployments, treat this sample as a starting point and add network isolation:
-
-1. **Add VNet integration for the Function App** so outbound access is routed through your virtual network.
-2. **Secure the storage account used for Azure Files**:
-  - Prefer **Private Endpoints** for `file` (and `blob` when used by your app).
-  - Alternatively, use **Service Endpoints** with storage firewall rules.
-3. **Disable public network access** on the storage account when using Private Endpoints.
-4. **Use private DNS zones** for Private Endpoints so `*.file.core.windows.net` and `*.blob.core.windows.net` resolve privately.
-5. **Keep identity-based access (RBAC/managed identity)** and avoid Shared Key access in production.
+| Images not processed | FFmpeg not on mount | Check `curl $FUNCTION_APP_URL/api/health` — if `ffmpeg_available` is `false`, re-run `azd up` |
+| Images not processed | EventGrid subscription missing | Run `az eventgrid system-topic event-subscription list --system-topic-name <topic> -g <rg>` to verify |
+| Slow first execution | Cold start + RBAC propagation | Wait 1-2 minutes after deployment for role assignments to propagate |
 
 > [!IMPORTANT]
-> Private Endpoints are the recommended production pattern for Azure Files. Service Endpoints can work, but they provide less isolation than Private Link.
+> **Security note:** This sample uses `allowSharedKeyAccess` on the storage account because Azure Files SMB mounts don't yet support managed identity. The storage account key is stored in Azure Key Vault and referenced during deployment. For production, add network isolation: use **VNet integration** for the function app and restrict storage access with **Private Endpoints** (recommended) or **Service Endpoints**. Disable public network access on the storage account when using Private Endpoints. See [Configure networking for Azure Functions](https://learn.microsoft.com/azure/azure-functions/configure-networking-how-to) for details.
 
 ## Customization
 
-You can modify the FFmpeg processing logic in `src/process_image.py` to:
-- Apply different filters (grayscale, blur, etc.)
-- Change output format (JPEG, PNG, WebP)
-- Resize to different dimensions
-- Add watermarks or overlays
+Modify `src/process_image.py` to change the FFmpeg processing logic — different filters, output formats (JPEG, PNG, WebP), resize dimensions, watermarks, etc.
 
-## Documentation
-
-For more details on Azure Files integration with Flex Consumption, see the [main documentation](../docs/).
-
-## Clean Up
-
-To delete all resources:
+## Clean up
 
 ```bash
-azd down
+azd down --purge
 ```
 
-## Learn More
+## Tutorial
 
-- [Azure Functions Flex Consumption](https://learn.microsoft.com/azure/azure-functions/flex-consumption-plan)
-- [EventGrid Blob Storage Events](https://learn.microsoft.com/azure/event-grid/event-schema-blob-storage)
-- [Azure Files](https://learn.microsoft.com/azure/storage/files/)
-- [FFmpeg Documentation](https://ffmpeg.org/documentation.html)
-- [Azure Verified Modules](https://aka.ms/avm)
+For a step-by-step walkthrough, see [Tutorial: Process images by using FFmpeg on a mounted Azure Files share](https://learn.microsoft.com/azure/azure-functions/tutorial-ffmpeg-processing-azure-files).
+
+## Learn more
+
+- [Azure Functions Flex Consumption plan](https://learn.microsoft.com/azure/azure-functions/flex-consumption-plan)
+- [Choose a file access strategy for Azure Functions](https://learn.microsoft.com/azure/azure-functions/concept-file-access-options)
+- [EventGrid blob storage events](https://learn.microsoft.com/azure/event-grid/event-schema-blob-storage)
+- [FFmpeg documentation](https://ffmpeg.org/documentation.html)
